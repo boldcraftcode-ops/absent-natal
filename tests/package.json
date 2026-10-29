@@ -1,0 +1,23 @@
+{
+  "name": "absensi-natal-tests",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "node sql.test.mjs && node check.mjs",
+    "test:sql": "node sql.test.mjs",
+    "test:e2e": "node e2e.test.mjs",
+    "test:all": "node sql.test.mjs && node check.mjs && node e2e.test.mjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "Uji otomatis skema SQL (PGlite) dan antarmuka (jsdom) untuk aplikasi absensi Natal.",
+  "dependencies": {
+    "@electric-sql/pglite": "^0.5.13"
+  },
+  "devDependencies": {
+    "jsdom": "^25.0.1"
+  },
+  "private": true,
+  "type": "module"
+}

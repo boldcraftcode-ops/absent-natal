@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Konfirmasi Kehadiran — Acara Natal</title>
+  <meta name="theme-color" content="#0a2f22">
+  <meta name="description" content="Konfirmasi kehadiran dan lihat nomor undian acara Natal.">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png" sizes="192x192">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="snow" aria-hidden="true"></div>
+
+  <header class="topbar">
+    <div class="topbar__logo" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 2v20M5 7l7-5 7 5M4 14l8-6 8 6M6 20h12"/>
+      </svg>
+    </div>
+    <div class="topbar__title">
+      <strong id="event-name">Acara Natal</strong>
+      <span>Absensi &amp; Nomor Undian</span>
+    </div>
+    <div class="topbar__actions">
+      <span class="badge badge--online" id="net-badge" title="Status koneksi">Online</span>
+    </div>
+  </header>
+
+  <main class="wrap wrap--narrow stack" id="main">
+
+    <!-- ================= layar 1: memuat ================= -->
+    <section id="view-loading" class="card center">
+      <div class="loader">
+        <div class="loader__ring" aria-hidden="true"></div>
+        <div>Memuat undangan…</div>
+      </div>
+    </section>
+
+    <!-- ================= layar 2: tanpa koneksi ================= -->
+    <section id="view-offline" class="card card--ribbon hidden">
+      <div class="participant-hero">
+        <div class="participant-hero__orn" aria-hidden="true">✳</div>
+        <h1>Tidak ada koneksi</h1>
+      </div>
+      <div class="notice notice--warn" style="margin-bottom:14px">
+        <span class="notice__icon" aria-hidden="true">📶</span>
+        <div>
+          <strong>Tidak ada koneksi.</strong> Tunjukkan QR undangan ini ke petugas registrasi.
+          Petugas akan mencatat kehadiran Anda dan menyebutkan nomor undian.
+        </div>
+      </div>
+      <div id="offline-qr" class="center"></div>
+      <button class="btn btn--outline btn--block" id="btn-retry" style="margin-top:14px">Coba lagi</button>
+    </section>
+
+    <!-- ================= layar 3: undangan ditemukan ================= -->
+    <section id="view-invite" class="hidden">
+      <div class="card card--ribbon stack">
+        <div class="participant-hero" style="padding-bottom:0">
+          <div class="participant-hero__orn" aria-hidden="true">🎄</div>
+          <h1>Undangan Anda</h1>
+          <p id="invite-org" class="muted-dark small">—</p>
+        </div>
+
+        <div>
+          <div class="field">
+            <span class="label">Nama lengkap</span>
+            <div class="input" id="invite-name" style="background:#f2f8f4;font-weight:700" aria-live="polite">—</div>
+          </div>
+          <div class="field" style="margin-bottom:6px">
+            <span class="label">Asal / instansi / divisi</span>
+            <div class="input" id="invite-org2" style="background:#f2f8f4">—</div>
+          </div>
+        </div>
+
+        <div id="invite-closed" class="notice notice--warn hidden">
+          <span class="notice__icon" aria-hidden="true">🔒</span>
+          <div><strong>Absensi sedang ditutup.</strong> Silakan hubungi petugas registrasi di meja depan.</div>
+        </div>
+
+        <button class="btn btn--red btn--xl btn--block" id="btn-confirm">
+          Konfirmasi Hadir
+        </button>
+        <p class="small center" style="color:var(--ink-soft);margin:0">
+          Tekan tombol di atas saat Anda sudah berada di lokasi acara.
+        </p>
+      </div>
+    </section>
+
+    <!-- ================= layar 4: sudah absen ================= -->
+    <section id="view-already" class="hidden">
+      <div class="card stack center">
+        <div class="participant-hero" style="padding:0">
+          <div class="participant-hero__orn" aria-hidden="true">✅</div>
+          <h1 style="color:var(--green-700)">Anda sudah tercatat hadir</h1>
+          <p style="color:var(--ink-soft);margin:0 0 2px" id="already-name"></p>
+          <p style="color:var(--ink-soft)">pukul <strong id="already-time">—</strong></p>
+        </div>
+        <div>
+          <div class="small muted-dark" style="color:var(--ink-soft)">Nomor undian Anda</div>
+          <div class="number number--hero" style="color:var(--green-700)" id="already-no">—</div>
+        </div>
+        <div class="notice notice--info">
+          <span class="notice__icon" aria-hidden="true">📸</span>
+          <div>Screenshot / foto nomor ini. Nomor <strong>tidak berubah</strong> walau Anda scan ulang.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= layar 5: sukses ================= -->
+    <section id="view-success" class="hidden">
+      <div class="card stack center card--ribbon">
+        <div class="participant-hero" style="padding:0;color:var(--ink)">
+          <div class="participant-hero__orn" aria-hidden="true">🎁</div>
+          <h1 style="color:var(--green-800)" id="success-greeting">Selamat datang!</h1>
+          <p style="color:var(--ink-soft)" id="success-sub">Kehadiran Anda berhasil dicatat.</p>
+        </div>
+
+        <div class="number-plate" style="align-self:center">
+          <div class="number number--hero" id="success-no">—</div>
+        </div>
+
+        <div class="screenshot-hint">📸 Screenshot nomor ini untuk undian</div>
+
+        <div class="notice notice--success">
+          <span class="notice__icon" aria-hidden="true">🍀</span>
+          <div>Nomor ini adalah nomor undian Anda. Simpan sampai acara selesai — hadiah diundi dari nomor yang hadir.</div>
+        </div>
+
+        <button class="btn btn--outline btn--block" id="btn-reload">Selesai</button>
+      </div>
+    </section>
+
+    <!-- ================= layar 6: form tanpa undangan ================= -->
+    <section id="view-form" class="hidden">
+      <div class="card card--ribbon stack">
+        <div class="participant-hero" style="padding:0">
+          <div class="participant-hero__orn" aria-hidden="true">🎄</div>
+          <h1>Daftar Kehadiran</h1>
+          <p style="color:var(--ink-soft)">Belum membawa undangan? Isi data berikut.</p>
+        </div>
+
+        <div id="form-closed" class="notice notice--warn hidden">
+          <span class="notice__icon" aria-hidden="true">🔒</span>
+          <div><strong>Absensi sedang ditutup.</strong> Silakan hubungi petugas registrasi.</div>
+        </div>
+
+        <form id="walkin-form" novalidate>
+          <label class="field">
+            <span class="label">Nama lengkap <span style="color:var(--red-600)">*</span></span>
+            <input class="input" name="name" id="f-name" autocomplete="name" required
+                   placeholder="Contoh: Budi Santoso" maxlength="80">
+          </label>
+
+          <label class="field">
+            <span class="label">No. HP / WhatsApp <span style="color:var(--red-600)">*</span></span>
+            <input class="input" name="phone" id="f-phone" type="tel" inputmode="tel"
+                   autocomplete="tel" required placeholder="0812xxxxxxx" maxlength="20">
+            <span class="hint">Satu nomor HP = satu peserta.</span>
+          </label>
+
+          <label class="field">
+            <span class="label">Asal / instansi / divisi / wilayah</span>
+            <input class="input" name="org" id="f-org" autocomplete="organization"
+                   placeholder="Contoh: Divisi TI" maxlength="80">
+          </label>
+
+          <label class="field">
+            <span class="label">Jumlah anggota keluarga yang ikut (opsional)</span>
+            <input class="input" name="family" id="f-family" type="number" inputmode="numeric"
+                   min="0" max="20" step="1" value="0">
+          </label>
+
+          <button class="btn btn--red btn--xl btn--block" id="btn-submit" type="submit">
+            Konfirmasi Hadir
+          </button>
+        </form>
+      </div>
+    </section>
+
+    <!-- ================= layar 7: token tidak ditemukan ================= -->
+    <section id="view-notfound" class="hidden">
+      <div class="card stack">
+        <div class="participant-hero" style="padding:0">
+          <div class="participant-hero__orn" aria-hidden="true">❗</div>
+          <h1 style="color:var(--red-700)">Undangan tidak ditemukan</h1>
+          <p style="color:var(--ink-soft)">Kode undangan pada QR tidak dikenali.</p>
+        </div>
+        <div class="notice notice--info">
+          <span class="notice__icon" aria-hidden="true">ℹ️</span>
+          <div>Pastikan Anda memindai QR terbaru dari panitia, atau tunjukkan QR Anda ke petugas registrasi.</div>
+        </div>
+        <a class="btn btn--red btn--block" href="./index.html" id="btn-goto-form">Daftar tanpa undangan</a>
+      </div>
+    </section>
+
+    <!-- ================= layar 8: error umum ================= -->
+    <section id="view-error" class="hidden">
+      <div class="card stack">
+        <div class="participant-hero" style="padding:0">
+          <div class="participant-hero__orn" aria-hidden="true">⚠️</div>
+          <h1 style="color:var(--red-700)">Terjadi kendala</h1>
+          <p style="color:var(--ink-soft)" id="error-message">—</p>
+        </div>
+        <button class="btn btn--red btn--block" id="btn-retry2">Coba lagi</button>
+        <a class="btn btn--outline btn--block" href="./index.html">Muat ulang halaman</a>
+      </div>
+    </section>
+
+    <footer class="center small" style="color:var(--snow-dim);padding:18px 0 8px">
+      <span id="footer-event">Acara Natal</span> · Panitia Registrasi
+    </footer>
+  </main>
+
+  <script src="vendor/qrcode.js"></script>
+  <script src="config.js"></script>
+  <script type="module" src="js/index.js"></script>
+</body>
+</html>

@@ -1,0 +1,26 @@
+{
+  "name": "Absensi Natal — Petugas",
+  "short_name": "Absensi Natal",
+  "description": "Aplikasi petugas registrasi acara Natal: scan QR undangan, cari peserta, dan daftarkan peserta tanpa undangan — tetap jalan tanpa internet.",
+  "id": "./petugas.html",
+  "start_url": "./petugas.html",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "portrait",
+  "background_color": "#061e16",
+  "theme_color": "#0a2f22",
+  "lang": "id",
+  "dir": "ltr",
+  "categories": ["productivity", "utilities"],
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Scan QR", "url": "./petugas.html#scan" },
+    { "name": "Cari peserta", "url": "./petugas.html#cari" },
+    { "name": "Tambah peserta", "url": "./petugas.html#tambah" }
+  ]
+}

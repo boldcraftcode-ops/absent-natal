@@ -1,0 +1,89 @@
+# ==========================================================================
+#  netlify.toml — konfigurasi situs statis absensi Natal
+#  Cukup drag-and-drop folder ini ke Netlify, atau hubungkan repo Git.
+# ==========================================================================
+
+[build]
+  publish = "."
+  command = ""
+
+# ---------------------------------------------------------------- header global
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "SAMEORIGIN"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(self), microphone=(), geolocation=()"
+    # Kamera wajib boleh diakses sendiri (untuk pemindai QR petugas)
+    Cross-Origin-Opener-Policy = "same-origin"
+
+# ------------------------------------------------------- service worker (jangan di-cache)
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+    Service-Worker-Allowed = "/"
+
+# --------------------------------------------- config.js (jangan di-cache: mudah diganti)
+[[headers]]
+  for = "/config.js"
+  [headers.values]
+    Cache-Control = "no-cache, must-revalidate"
+
+# ------------------------------------------------------ manifest & ikon (cache sedang)
+[[headers]]
+  for = "/manifest.webmanifest"
+  [headers.values]
+    Content-Type = "application/manifest+json"
+    Cache-Control = "public, max-age=3600"
+
+[[headers]]
+  for = "/icons/*"
+  [headers.values]
+    Cache-Control = "public, max-age=604800"
+
+# ------------------------------------------------- kode & aset aplikasi (cache pendek)
+[[headers]]
+  for = "/js/*"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/*.css"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+# --------------------------------------------------------------- library vendor
+[[headers]]
+  for = "/vendor/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# ------------------------------------------------------------------ halaman HTML
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/petugas.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/admin.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/undian.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+# ------------------------------------------------------------------- pengalihan
+# Undangan memakai format /?t=<token>, pastikan tetap ke index.html
+[[redirects]]
+  from = "/undangan"
+  to = "/index.html"
+  status = 302

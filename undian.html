@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Layar Undian — Acara Natal</title>
+  <meta name="theme-color" content="#04150f">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png" sizes="192x192">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="screen">
+  <div class="snow" aria-hidden="true"></div>
+  <div class="confetti-layer" id="confetti" aria-hidden="true"></div>
+
+  <!-- ============================= LOGIN ============================= -->
+  <div id="view-login" class="wrap wrap--narrow" style="padding-top:8vh">
+    <div class="card card--ribbon stack">
+      <div class="participant-hero" style="padding:0">
+        <div class="participant-hero__orn" aria-hidden="true">🎬</div>
+        <h1 style="color:var(--green-800)">Layar Undian</h1>
+        <p style="color:var(--ink-soft)">Masuk dengan PIN admin untuk memuat data acara.</p>
+      </div>
+      <form id="login-form" novalidate>
+        <label class="field">
+          <span class="label">PIN Admin</span>
+          <input class="input input--pin" id="pin-input" type="password" inputmode="numeric"
+                 autocomplete="current-password" placeholder="••••" maxlength="32" required>
+        </label>
+        <div id="login-error" class="notice notice--danger hidden" style="margin-bottom:12px">
+          <span class="notice__icon" aria-hidden="true">⚠️</span>
+          <div id="login-error-text">PIN salah.</div>
+        </div>
+        <button class="btn btn--red btn--xl btn--block" id="btn-login" type="submit">Masuk &amp; Muat Data</button>
+      </form>
+      <div class="notice notice--info small">
+        <span class="notice__icon" aria-hidden="true">ℹ️</span>
+        <div>Data peserta hadir, hadiah, dan pemenang disimpan di perangkat ini. Setelah dimuat, undian bisa berjalan tanpa internet.</div>
+      </div>
+      <p class="center small" style="margin:0">
+        <a href="./admin.html" style="color:var(--green-700)">← Panel admin</a>
+      </p>
+    </div>
+  </div>
+
+  <!-- ============================ LAYAR ============================ -->
+  <div id="view-screen" class="hidden">
+    <div class="screen-grid">
+
+      <!-- atas: judul + hadiah -->
+      <header class="center" style="position:relative;z-index:6">
+        <h1 class="screen-title" id="event-title">Perayaan Natal</h1>
+        <div class="screen-prize" id="prize-title">Pilih hadiah untuk mulai</div>
+        <div class="small" id="prize-sub" style="color:var(--snow-dim);margin-top:2px">—</div>
+      </header>
+
+      <!-- tengah: digit -->
+      <div class="screen-stage">
+        <div>
+          <div class="digits" id="digits" aria-live="polite">
+            <div class="digit" id="d0">0</div>
+            <div class="digit" id="d1">0</div>
+            <div class="digit" id="d2">0</div>
+          </div>
+          <div class="screen-winner" id="winner-info">
+            <span id="winner-name">—</span>
+            <span class="org" id="winner-org"></span>
+          </div>
+          <div id="screen-hint" class="small" style="color:var(--snow-dim);margin-top:10px">
+            Tekan <span class="kbd">Spasi</span> atau tombol <strong>MULAI</strong>
+          </div>
+        </div>
+      </div>
+
+      <!-- bawah: kontrol -->
+      <footer style="position:relative;z-index:6">
+        <div class="row" style="justify-content:center;gap:8px;flex-wrap:wrap" id="controls">
+          <select class="select" id="prize-select" style="max-width:280px;min-height:44px;padding:8px 12px"></select>
+          <button class="btn btn--gold btn--lg" id="btn-start">▶ MULAI</button>
+          <button class="btn btn--red btn--lg hidden" id="btn-confirm">✔ Konfirmasi Pemenang</button>
+          <button class="btn btn--ghost hidden" id="btn-redraw">↻ Tidak Hadir — Undi Ulang</button>
+          <button class="btn btn--ghost btn--sm" id="btn-refresh-data" title="Tambah peserta yang baru absen">⟳ Segarkan data</button>
+          <button class="btn btn--ghost btn--sm" id="btn-fullscreen" title="Layar penuh">⛶</button>
+          <button class="btn btn--ghost btn--sm" id="btn-quit" title="Keluar">Keluar</button>
+        </div>
+        <div class="row" style="justify-content:center;gap:8px;margin-top:8px">
+          <span class="badge" id="net-badge">Online</span>
+          <span class="badge badge--queue" id="queue-badge">Antrean 0</span>
+          <span class="badge badge--plain" id="candidate-badge">0 kandidat</span>
+        </div>
+      </footer>
+    </div>
+
+    <!-- samping: pemenang -->
+    <aside class="screen-side">
+      <h3>Pemenang</h3>
+      <ol id="winner-list-side"><li style="list-style:none;opacity:.7">Belum ada</li></ol>
+    </aside>
+  </div>
+
+  <script src="config.js"></script>
+  <script type="module" src="js/undian.js"></script>
+</body>
+</html>

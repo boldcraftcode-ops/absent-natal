@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Petugas Registrasi — Absensi Natal</title>
+  <meta name="theme-color" content="#0a2f22">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png" sizes="192x192">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="snow" aria-hidden="true"></div>
+
+  <header class="topbar">
+    <div class="topbar__logo" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 2v20M5 7l7-5 7 5M4 14l8-6 8 6M6 20h12"/>
+      </svg>
+    </div>
+    <div class="topbar__title">
+      <strong id="event-name">Petugas Registrasi</strong>
+      <span>Absensi Natal</span>
+    </div>
+    <div class="topbar__actions">
+      <span class="badge badge--online" id="net-badge" title="Status koneksi">Online</span>
+    </div>
+  </header>
+
+  <main class="wrap stack" id="main">
+
+    <!-- ============================ LOGIN ============================ -->
+    <section id="view-login" class="card card--ribbon stack" style="max-width:460px;margin:8vh auto 0">
+      <div class="participant-hero" style="padding:0">
+        <div class="participant-hero__orn" aria-hidden="true">🎄</div>
+        <h1 style="color:var(--green-800)">Masuk Petugas</h1>
+        <p style="color:var(--ink-soft)">Masukkan PIN petugas registrasi.</p>
+      </div>
+      <form id="login-form" novalidate>
+        <label class="field">
+          <span class="label">PIN Petugas</span>
+          <input class="input input--pin" id="pin-input" type="password" inputmode="numeric"
+                 autocomplete="current-password" placeholder="••••" maxlength="32" required>
+          <span class="hint">PIN disimpan di perangkat ini agar bisa dibuka lagi saat offline.</span>
+        </label>
+        <div id="login-error" class="notice notice--danger hidden" style="margin-bottom:12px">
+          <span class="notice__icon" aria-hidden="true">⚠️</span>
+          <div id="login-error-text">PIN salah.</div>
+        </div>
+        <button class="btn btn--red btn--xl btn--block" id="btn-login" type="submit">Masuk</button>
+      </form>
+      <div class="notice notice--dark small">
+        <span class="notice__icon" aria-hidden="true">ℹ️</span>
+        <div>Pertama kali masuk perlu internet untuk mengunduh daftar peserta. Setelah itu aplikasi bisa dipakai tanpa sinyal.</div>
+      </div>
+      <p class="center small"><a href="./index.html" style="color:var(--gold-200)">← Halaman peserta</a></p>
+    </section>
+
+    <!-- ============================ APLIKASI ============================ -->
+    <section id="view-app" class="hidden stack">
+
+      <!-- ringkasan -->
+      <div class="stats" id="staff-stats">
+        <div class="stat">
+          <div class="stat__label">Hadir</div>
+          <div class="stat__value" id="stat-attended">0</div>
+        </div>
+        <div class="stat">
+          <div class="stat__label">Total peserta</div>
+          <div class="stat__value" id="stat-total">0</div>
+        </div>
+        <div class="stat stat--accent">
+          <div class="stat__label">Antrean sinkron</div>
+          <div class="stat__value" id="stat-queue">0</div>
+        </div>
+      </div>
+
+      <div class="row row--between" style="gap:8px">
+        <div class="filters">
+          <span class="badge badge--queue" id="queue-badge">Antrean 0</span>
+          <span class="badge badge--plain" id="block-badge">Jatah 0</span>
+        </div>
+        <div class="row" style="gap:6px">
+          <button class="btn btn--ghost btn--sm" id="btn-sync" title="Sinkronkan sekarang">🔄 Sinkron</button>
+          <button class="btn btn--ghost btn--sm" id="btn-refresh" title="Unduh ulang daftar peserta">⬇️ Data</button>
+          <button class="btn btn--ghost btn--sm" id="btn-logout" title="Keluar">Keluar</button>
+        </div>
+      </div>
+
+      <div id="sync-note" class="notice notice--dark small hidden">
+        <span class="notice__icon" aria-hidden="true">📡</span>
+        <div id="sync-note-text"></div>
+      </div>
+
+      <nav class="tabs" role="tablist" aria-label="Menu petugas">
+        <button class="tab" role="tab" id="tab-scan" aria-controls="panel-scan" aria-selected="true">📷 Scan</button>
+        <button class="tab" role="tab" id="tab-cari" aria-controls="panel-cari" aria-selected="false">🔍 Cari</button>
+        <button class="tab" role="tab" id="tab-tambah" aria-controls="panel-tambah" aria-selected="false">➕ Tambah</button>
+      </nav>
+
+      <!-- ---------------------------- SCAN ---------------------------- -->
+      <section id="panel-scan" role="tabpanel" aria-labelledby="tab-scan" class="stack">
+        <div class="card card--ribbon" style="padding:12px">
+          <div id="reader" style="width:100%;border-radius:12px;overflow:hidden;background:#061e16;min-height:220px"></div>
+          <div id="scan-idle" class="center small" style="color:var(--ink-soft);padding:8px 0 0">
+            Arahkan kamera ke QR undangan peserta.
+          </div>
+        </div>
+
+        <div id="camera-error" class="notice notice--warn hidden">
+          <span class="notice__icon" aria-hidden="true">📷</span>
+          <div>
+            <strong>Kamera tidak dapat digunakan.</strong>
+            <div id="camera-error-text" class="small">Izinkan akses kamera pada browser, lalu muat ulang halaman.</div>
+            <div class="small" style="margin-top:6px">
+              Alternatif: gunakan tab <strong>Cari</strong> untuk menghadirkan peserta secara manual.
+            </div>
+            <button class="btn btn--outline btn--sm" id="btn-ask-camera" style="margin-top:8px">Coba izinkan lagi</button>
+          </div>
+        </div>
+
+        <div id="scan-result" class="hidden"></div>
+
+        <details class="card card--flat" style="padding:12px 14px">
+          <summary class="small" style="cursor:pointer;font-weight:700;color:var(--green-800)">Masukkan kode undangan manual</summary>
+          <form id="manual-scan-form" class="row" style="margin-top:10px;gap:8px">
+            <input class="input grow" id="manual-token" placeholder="Tempel link undangan atau 16 karakter kode" style="min-width:0">
+            <button class="btn btn--outline btn--sm" type="submit">Proses</button>
+          </form>
+        </details>
+      </section>
+
+      <!-- ---------------------------- CARI ---------------------------- -->
+      <section id="panel-cari" role="tabpanel" aria-labelledby="tab-cari" class="hidden stack">
+        <div class="card" style="padding:12px">
+          <label class="field" style="margin:0">
+            <span class="label">Cari nama / No. HP / asal</span>
+            <input class="input" id="search-input" type="search" placeholder="Ketik minimal 2 huruf…"
+                   autocomplete="off" spellcheck="false">
+          </label>
+          <div class="row row--between" style="margin-top:8px">
+            <span class="small" style="color:var(--ink-soft)" id="search-count">—</span>
+            <label class="small row" style="gap:6px;color:var(--ink-soft)">
+              <input type="checkbox" id="search-unattended"> Hanya belum hadir
+            </label>
+          </div>
+        </div>
+        <div class="list" id="search-results"></div>
+      </section>
+
+      <!-- --------------------------- TAMBAH --------------------------- -->
+      <section id="panel-tambah" role="tabpanel" aria-labelledby="tab-tambah" class="hidden">
+        <div class="card card--ribbon stack">
+          <div>
+            <h2 class="card__title">Tambah peserta tanpa undangan</h2>
+            <p class="card__sub">Nomor undian diambil dari jatah nomor di HP ini, jadi aman walau offline.</p>
+          </div>
+          <div id="tambah-warning" class="notice notice--warn hidden">
+            <span class="notice__icon" aria-hidden="true">🔢</span>
+            <div id="tambah-warning-text">Jatah nomor habis. Sambungkan internet untuk mengambil jatah baru.</div>
+          </div>
+          <form id="add-form" novalidate>
+            <label class="field">
+              <span class="label">Nama lengkap <span style="color:var(--red-600)">*</span></span>
+              <input class="input" id="add-name" required maxlength="80" autocomplete="name"
+                     placeholder="Contoh: Rudi Hartono">
+            </label>
+            <label class="field">
+              <span class="label">No. HP / WA</span>
+              <input class="input" id="add-phone" type="tel" inputmode="tel" maxlength="20"
+                     autocomplete="tel" placeholder="0812xxxxxxx">
+              <span class="hint">Opsional untuk petugas, tetapi sangat membantu mencegah data dobel.</span>
+            </label>
+            <label class="field">
+              <span class="label">Asal / instansi / divisi</span>
+              <input class="input" id="add-org" maxlength="80" placeholder="Contoh: Wilayah Medan Kota">
+            </label>
+            <label class="field">
+              <span class="label">Jumlah anggota keluarga yang ikut</span>
+              <input class="input" id="add-family" type="number" inputmode="numeric" min="0" max="20" value="0">
+            </label>
+            <button class="btn btn--red btn--xl btn--block" id="btn-add" type="submit">Daftarkan &amp; Hadirkan</button>
+          </form>
+          <div id="add-result" class="hidden"></div>
+        </div>
+      </section>
+
+      <!-- riwayat singkat -->
+      <details class="card card--flat" style="padding:12px 14px">
+        <summary class="small" style="cursor:pointer;font-weight:700;color:var(--green-800)">
+          Riwayat scan di HP ini (<span id="log-count">0</span>)
+        </summary>
+        <div id="scan-log" class="list" style="margin-top:10px"></div>
+      </details>
+    </section>
+
+    <footer class="center small" style="color:var(--snow-dim);padding:10px 0 24px">
+      Petugas Registrasi · Aplikasi tetap berjalan tanpa internet
+    </footer>
+  </main>
+
+  <script src="config.js"></script>
+  <script src="vendor/html5-qrcode.min.js"></script>
+  <script type="module" src="js/petugas.js"></script>
+</body>
+</html>

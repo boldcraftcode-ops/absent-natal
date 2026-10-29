@@ -5,8 +5,8 @@
    akses data dibatasi lewat fungsi RPC + PIN).
    ========================================================================== */
 window.APP_CONFIG = {
-  SUPABASE_URL: '',            // contoh: 'https://abcdefghijkl.supabase.co'
-  SUPABASE_ANON_KEY: '',       // contoh: 'sb_publishable_xxx' atau 'eyJhbGciOi...'
+  SUPABASE_URL: 'https://huendbdgtkmgatnulltp.supabase.co',            // contoh: 'https://abcdefghijkl.supabase.co'
+  SUPABASE_ANON_KEY: 'sb_publishable_yiXkeLmFBeJltdDCGbbXhw_PXtWJL7o',       // contoh: 'sb_publishable_xxx' atau 'eyJhbGciOi...'
 
   // Opsional
   DEFAULT_EVENT_NAME: 'Perayaan Natal',

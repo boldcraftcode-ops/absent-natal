@@ -48,6 +48,8 @@ create table if not exists public.participants (
   phone         text,
   org           text,
   family_count  integer not null default 0 check (family_count >= 0),
+  wants_meal    boolean not null default false,   -- ambil kupon makan
+  wants_souvenir boolean not null default false,  -- ambil souvenir
   invited       boolean not null default false,
   lottery_no    integer not null unique,
   attended      boolean not null default false,
@@ -60,6 +62,19 @@ create table if not exists public.participants (
 create index if not exists participants_phone_idx     on public.participants (phone) where phone is not null;
 create index if not exists participants_name_norm_idx on public.participants (name_norm);
 create index if not exists participants_attended_idx  on public.participants (attended);
+
+-- Anggota keluarga yang ikut (maks 5 per peserta, satu baris per orang)
+create table if not exists public.family_members (
+  id             uuid primary key default extensions.gen_random_uuid(),
+  participant_id uuid not null references public.participants (id) on delete cascade,
+  name           text not null,
+  position       integer not null default 1 check (position between 1 and 5),
+  created_at     timestamptz not null default now(),
+  unique (participant_id, position)
+);
+
+create index if not exists family_members_participant_idx
+  on public.family_members (participant_id);
 
 create table if not exists public.prizes (
   id         uuid primary key default extensions.gen_random_uuid(),
@@ -126,6 +141,93 @@ immutable
 set search_path = ''
 as $$
   select nullif(btrim(regexp_replace(lower(coalesce(p, '')), '\s+', ' ', 'g')), '');
+$$;
+
+-- Bersihkan daftar nama anggota keluarga: maksimal 5, buang yang kosong/duplikat.
+create or replace function public._norm_family_names(p_names jsonb)
+returns text[]
+language plpgsql
+immutable
+set search_path = ''
+as $$
+declare
+  v_raw  text;
+  v_out  text[] := '{}';
+  v_name text;
+begin
+  if p_names is null or jsonb_typeof(p_names) <> 'array' then
+    return v_out;
+  end if;
+
+  for v_raw in select value #>> '{}' from jsonb_array_elements(p_names) loop
+    v_name := btrim(regexp_replace(coalesce(v_raw, ''), '\s+', ' ', 'g'));
+    continue when length(v_name) < 2;
+    -- lewati nama berulang (tanpa membedakan huruf besar/kecil)
+    continue when exists (select 1 from unnest(v_out) x where lower(x) = lower(v_name));
+    v_out := v_out || v_name;
+    exit when array_length(v_out, 1) >= 5;
+  end loop;
+
+  return v_out;
+end $$;
+
+-- Simpan anggota keluarga (ganti seluruh daftar) + samakan family_count.
+-- p_extra mempertahankan hitungan lama bila peserta hanya mengisi jumlah tanpa nama.
+create or replace function public._set_family(p_id uuid, p_names jsonb, p_extra integer default 0)
+returns integer
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_names    text[];
+  v_existing integer;
+  v_count    integer;
+  i          integer;
+begin
+  -- p_names NULL  -> daftar tidak dikirim, nama yang sudah ada DIPERTAHANKAN
+  -- p_names '[]'  -> daftar dikosongkan (hapus semua anggota)
+  if p_names is not null then
+    v_names := public._norm_family_names(p_names);
+    delete from public.family_members where participant_id = p_id;
+    if array_length(v_names, 1) is not null then
+      for i in 1 .. array_length(v_names, 1) loop
+        insert into public.family_members (participant_id, name, position)
+        values (p_id, v_names[i], i);
+      end loop;
+    end if;
+  end if;
+
+  select count(*)::integer into v_existing
+    from public.family_members where participant_id = p_id;
+
+  -- hitungan = jumlah nama tercatat, tidak turun dari data sebelumnya,
+  -- dan minimal sebesar angka yang dikirim (maks 5)
+  v_count := greatest(
+    coalesce(array_length(v_names, 1), 0),
+    coalesce(v_existing, 0),
+    least(greatest(coalesce(p_extra, 0), 0), 5)
+  );
+
+  update public.participants set family_count = v_count where id = p_id;
+  return v_count;
+end $$;
+
+-- Daftar anggota keluarga untuk sekumpulan peserta (dipakai admin/petugas)
+create or replace function public._family_map(p_ids uuid[])
+returns jsonb
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select coalesce(jsonb_object_agg(f.participant_id, f.names), '{}'::jsonb)
+  from (
+    select participant_id, jsonb_agg(name order by position) as names
+      from public.family_members
+     where participant_id = any (p_ids)
+     group by participant_id
+  ) f;
 $$;
 
 create or replace function public._event_name()
@@ -281,12 +383,15 @@ end $$;
 -- Pendaftar tanpa undangan (dipakai form umum, petugas, dan admin).
 -- Menggabungkan data bila HP/nama cocok dengan peserta yang sudah ada.
 create or replace function public._register_walkin(
-  p_name     text,
-  p_phone    text,
-  p_org      text,
-  p_family   integer,
-  p_source   text,
-  p_force_no integer default null
+  p_name       text,
+  p_phone      text,
+  p_org        text,
+  p_family     integer,
+  p_source     text,
+  p_force_no   integer default null,
+  p_meal       boolean default false,
+  p_souvenir   boolean default false,
+  p_family_names jsonb default null
 )
 returns jsonb
 language plpgsql
@@ -315,14 +420,22 @@ begin
     select attended into v_was from public.participants where id = v_match;
 
     update public.participants
-       set attended     = true,
-           attended_at  = coalesce(attended_at, now()),
-           phone        = coalesce(phone, v_phone),
-           org          = coalesce(org, v_org),
-           family_count = greatest(family_count, v_fam),
-           source       = case when attended then source else coalesce(p_source, source) end
+       set attended      = true,
+           attended_at   = coalesce(attended_at, now()),
+           phone         = coalesce(phone, v_phone),
+           org           = coalesce(org, v_org),
+           wants_meal    = wants_meal or coalesce(p_meal, false),
+           wants_souvenir = wants_souvenir or coalesce(p_souvenir, false),
+           source        = case when attended then source else coalesce(p_source, source) end
      where id = v_match
     returning * into v_p;
+
+    -- anggota keluarga: daftar baru menggantikan, atau pertahankan angka tertinggi
+    perform public._set_family(
+      v_p.id,
+      nullif(p_family_names, 'null'::jsonb),
+      greatest(v_p.family_count, v_fam));
+    select * into v_p from public.participants where id = v_match;
 
     return jsonb_build_object(
       'ok', true,
@@ -333,6 +446,8 @@ begin
       'org', v_p.org,
       'lottery_no', v_p.lottery_no,
       'attended_at', v_p.attended_at,
+      'family_count', v_p.family_count,
+      'wants_meal', v_p.wants_meal, 'wants_souvenir', v_p.wants_souvenir,
       'invited', v_p.invited,
       'message', 'Data Anda digabungkan dengan undangan yang sudah terdaftar.'
     );
@@ -348,15 +463,21 @@ begin
   end if;
 
   insert into public.participants (token, name, name_norm, phone, org, family_count,
+                                   wants_meal, wants_souvenir,
                                    invited, lottery_no, attended, attended_at, source)
   values (public._new_token(), v_name, public._norm_name(v_name), v_phone, v_org, v_fam,
+          coalesce(p_meal, false), coalesce(p_souvenir, false),
           false, v_no, true, now(), coalesce(p_source, 'form_umum'))
   returning * into v_p;
+
+  v_p.family_count := public._set_family(v_p.id, nullif(p_family_names, 'null'::jsonb), v_fam);
 
   return jsonb_build_object(
     'ok', true, 'status', 'ok', 'merged', false,
     'id', v_p.id, 'name', v_p.name, 'org', v_p.org,
     'lottery_no', v_p.lottery_no, 'attended_at', v_p.attended_at,
+    'family_count', v_p.family_count,
+    'wants_meal', v_p.wants_meal, 'wants_souvenir', v_p.wants_souvenir,
     'invited', false, 'message', 'Pendaftaran berhasil.'
   );
 exception
@@ -482,10 +603,13 @@ begin
 end $$;
 
 create or replace function public.walkin_register(
-  p_name   text,
-  p_phone  text,
-  p_org    text default null,
-  p_family integer default 0
+  p_name         text,
+  p_phone        text,
+  p_org          text default null,
+  p_family       integer default 0,
+  p_meal         boolean default false,
+  p_souvenir     boolean default false,
+  p_family_names jsonb default null
 )
 returns jsonb
 language plpgsql
@@ -503,7 +627,8 @@ begin
       'message', 'Nomor HP/WA wajib diisi dengan benar (contoh: 0812xxxxxxx).');
   end if;
 
-  return public._register_walkin(p_name, p_phone, p_org, p_family, 'form_umum', null);
+  return public._register_walkin(p_name, p_phone, p_org, p_family, 'form_umum', null,
+                                 p_meal, p_souvenir, p_family_names);
 end $$;
 
 -- ---------------------------------------------------------------------------
@@ -527,7 +652,9 @@ begin
 
   select coalesce(jsonb_agg(jsonb_build_object(
            'id', p.id, 'token', p.token, 'name', p.name, 'org', p.org, 'phone', p.phone,
-           'family_count', p.family_count, 'invited', p.invited,
+           'family_count', p.family_count,
+           'wants_meal', p.wants_meal, 'wants_souvenir', p.wants_souvenir,
+           'invited', p.invited,
            'lottery_no', p.lottery_no, 'attended', p.attended,
            'attended_at', p.attended_at, 'source', p.source)
          order by p.lottery_no), '[]'::jsonb)
@@ -634,7 +761,10 @@ begin
                    v_item ->> 'name', v_item ->> 'phone', v_item ->> 'org',
                    coalesce((v_item ->> 'family_count')::integer, 0),
                    'petugas',
-                   nullif(v_item ->> 'lottery_no', '')::integer);
+                   nullif(v_item ->> 'lottery_no', '')::integer,
+                   coalesce((v_item ->> 'wants_meal')::boolean, false),
+                   coalesce((v_item ->> 'wants_souvenir')::boolean, false),
+                   v_item -> 'family_names');
         v_res := jsonb_build_object('id', v_item ->> 'id',
           'status', case when (v_reg ->> 'merged')::boolean then 'merged' else 'ok' end,
           'participant_id', v_reg ->> 'id', 'name', v_reg ->> 'name',
@@ -691,11 +821,20 @@ begin
 
   select coalesce(jsonb_agg(jsonb_build_object(
            'id', p.id, 'token', p.token, 'name', p.name, 'org', p.org, 'phone', p.phone,
-           'family_count', p.family_count, 'invited', p.invited,
+           'family_count', p.family_count,
+           'wants_meal', p.wants_meal, 'wants_souvenir', p.wants_souvenir,
+           'family_names', coalesce(f.names, '[]'::jsonb),
+           'invited', p.invited,
            'lottery_no', p.lottery_no, 'attended', p.attended,
            'attended_at', p.attended_at, 'source', p.source, 'created_at', p.created_at)
          order by p.lottery_no), '[]'::jsonb)
-    into v_people from public.participants p;
+    into v_people
+    from public.participants p
+    left join lateral (
+      select jsonb_agg(m.name order by m.position) as names
+        from public.family_members m
+       where m.participant_id = p.id
+    ) f on true;
 
   select coalesce(jsonb_agg(jsonb_build_object(
            'id', z.id, 'name', z.name, 'qty', z.qty, 'sort_order', z.sort_order)
@@ -713,6 +852,17 @@ begin
     'event_name', public._event_name(),
     'attendance_open', public._attendance_open(),
     'walkin_next', (select value::integer from public.settings where key = 'walkin_next'),
+    -- rekap kebutuhan konsumsi & suvenir
+    'totals', jsonb_build_object(
+      'people_present', (select count(*) from public.participants where attended),
+      'family_present', (select coalesce(sum(family_count), 0) from public.participants where attended),
+      'meal', (select count(*) from public.participants where attended and wants_meal),
+      'meal_with_family',
+        (select coalesce(sum(1 + family_count), 0) from public.participants where attended and wants_meal),
+      'souvenir', (select count(*) from public.participants where attended and wants_souvenir),
+      'souvenir_with_family',
+        (select coalesce(sum(1 + family_count), 0) from public.participants where attended and wants_souvenir)
+    ),
     'participants', v_people,
     'prizes', v_prizes,
     'winners', v_winners,
@@ -891,8 +1041,14 @@ begin
          phone        = case when p_fields ? 'phone' then public._norm_phone(p_fields ->> 'phone') else phone end,
          org          = case when p_fields ? 'org' then nullif(btrim(coalesce(p_fields ->> 'org', '')), '') else org end,
          family_count = case when p_fields ? 'family_count'
-                             then greatest(0, coalesce((p_fields ->> 'family_count')::integer, 0))
-                             else family_count end
+                             then least(greatest(0, coalesce((p_fields ->> 'family_count')::integer, 0)), 5)
+                             else family_count end,
+         wants_meal = case when p_fields ? 'wants_meal'
+                           then coalesce((p_fields ->> 'wants_meal')::boolean, false)
+                           else wants_meal end,
+         wants_souvenir = case when p_fields ? 'wants_souvenir'
+                               then coalesce((p_fields ->> 'wants_souvenir')::boolean, false)
+                               else wants_souvenir end
    where id = p_id
   returning * into v_p;
 
@@ -900,8 +1056,15 @@ begin
     return jsonb_build_object('ok', false, 'message', 'Peserta tidak ditemukan.');
   end if;
 
+  if p_fields ? 'family_names' then
+    v_p.family_count := public._set_family(v_p.id, p_fields -> 'family_names',
+                                           coalesce((p_fields ->> 'family_count')::integer, v_p.family_count));
+  end if;
+
   return jsonb_build_object('ok', true, 'id', v_p.id, 'name', v_p.name, 'phone', v_p.phone,
                             'org', v_p.org, 'family_count', v_p.family_count,
+                            'wants_meal', v_p.wants_meal, 'wants_souvenir', v_p.wants_souvenir,
+                            'family_names', public._family_map(array[v_p.id]) -> v_p.id::text,
                             'lottery_no', v_p.lottery_no);
 end $$;
 
@@ -919,13 +1082,16 @@ begin
 end $$;
 
 create or replace function public.admin_add(
-  p_pin      text,
-  p_name     text,
-  p_phone    text default null,
-  p_org      text default null,
-  p_family   integer default 0,
-  p_attended boolean default true,
-  p_invited  boolean default false
+  p_pin          text,
+  p_name         text,
+  p_phone        text default null,
+  p_org          text default null,
+  p_family       integer default 0,
+  p_attended     boolean default true,
+  p_invited      boolean default false,
+  p_meal         boolean default false,
+  p_souvenir     boolean default false,
+  p_family_names jsonb default null
 )
 returns jsonb
 language plpgsql
@@ -953,16 +1119,23 @@ begin
   v_no := public._next_walkin_no();
 
   insert into public.participants (token, name, name_norm, phone, org, family_count,
+                                   wants_meal, wants_souvenir,
                                    invited, lottery_no, attended, attended_at, source)
   values (public._new_token(), v_name, public._norm_name(v_name), public._norm_phone(p_phone),
-          nullif(btrim(coalesce(p_org, '')), ''), greatest(0, coalesce(p_family, 0)),
+          nullif(btrim(coalesce(p_org, '')), ''), least(greatest(0, coalesce(p_family, 0)), 5),
+          coalesce(p_meal, false), coalesce(p_souvenir, false),
           coalesce(p_invited, false), v_no,
           coalesce(p_attended, true), case when coalesce(p_attended, true) then now() end,
           'manual')
   returning * into v_p;
 
+  v_p.family_count := public._set_family(v_p.id, nullif(p_family_names, 'null'::jsonb),
+                                         coalesce(p_family, 0));
+
   return jsonb_build_object('ok', true, 'id', v_p.id, 'name', v_p.name,
-                            'lottery_no', v_p.lottery_no, 'attended', v_p.attended);
+                            'lottery_no', v_p.lottery_no, 'attended', v_p.attended,
+                            'family_count', v_p.family_count,
+                            'wants_meal', v_p.wants_meal, 'wants_souvenir', v_p.wants_souvenir);
 end $$;
 
 create or replace function public.admin_prize_save(
@@ -1115,14 +1288,16 @@ end $$;
 -- ---------------------------------------------------------------------------
 -- 7. RLS + HAK AKSES
 -- ---------------------------------------------------------------------------
-alter table public.settings     enable row level security;
-alter table public.participants enable row level security;
+alter table public.settings       enable row level security;
+alter table public.participants   enable row level security;
+alter table public.family_members enable row level security;
 alter table public.prizes       enable row level security;
 alter table public.winners      enable row level security;
 
 -- Tidak ada policy sama sekali -> tidak ada baris yang bisa diakses langsung.
-revoke all on public.settings     from anon, authenticated;
-revoke all on public.participants from anon, authenticated;
+revoke all on public.settings       from anon, authenticated;
+revoke all on public.participants   from anon, authenticated;
+revoke all on public.family_members from anon, authenticated;
 revoke all on public.prizes       from anon, authenticated;
 revoke all on public.winners      from anon, authenticated;
 
@@ -1142,14 +1317,18 @@ revoke execute on function public._next_walkin_no()                 from public,
 revoke execute on function public._claim_block(integer)             from public, anon, authenticated;
 revoke execute on function public._new_token()                      from public, anon, authenticated;
 revoke execute on function public._find_match(text, text)           from public, anon, authenticated;
-revoke execute on function public._register_walkin(text, text, text, integer, text, integer)
+revoke execute on function public._norm_family_names(jsonb)         from public, anon, authenticated;
+revoke execute on function public._set_family(uuid, jsonb, integer) from public, anon, authenticated;
+revoke execute on function public._family_map(uuid[])               from public, anon, authenticated;
+revoke execute on function public._register_walkin(text, text, text, integer, text, integer, boolean, boolean, jsonb)
   from public, anon, authenticated;
 
 -- Fungsi PUBLIK
 grant execute on function public.event_info()                                   to anon, authenticated;
 grant execute on function public.get_invite(text)                               to anon, authenticated;
 grant execute on function public.confirm_attendance(text)                       to anon, authenticated;
-grant execute on function public.walkin_register(text, text, text, integer)     to anon, authenticated;
+grant execute on function public.walkin_register(text, text, text, integer, boolean, boolean, jsonb)
+  to anon, authenticated;
 
 -- Fungsi PETUGAS
 grant execute on function public.staff_data(text)                               to anon, authenticated;
@@ -1165,7 +1344,8 @@ grant execute on function public.admin_change_pin(text, text, text)             
 grant execute on function public.admin_toggle(text, uuid, boolean)                          to anon, authenticated;
 grant execute on function public.admin_update(text, uuid, jsonb)                            to anon, authenticated;
 grant execute on function public.admin_delete(text, uuid)                                   to anon, authenticated;
-grant execute on function public.admin_add(text, text, text, text, integer, boolean, boolean) to anon, authenticated;
+grant execute on function public.admin_add(text, text, text, text, integer, boolean, boolean, boolean, boolean, jsonb)
+  to anon, authenticated;
 grant execute on function public.admin_prize_save(text, text, integer, uuid, integer)        to anon, authenticated;
 grant execute on function public.admin_prize_delete(text, uuid)                             to anon, authenticated;
 grant execute on function public.admin_winner_delete(text, uuid)                            to anon, authenticated;

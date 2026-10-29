@@ -105,6 +105,30 @@ for (const f of files.filter((x) => extname(x) === '.json' || x.endsWith('.webma
   catch (e) { bad(`${f.replace(root + '/', '')}: ${e.message}`); }
 }
 
+// ----------------------------------------------- variabel CSS yang dipakai
+console.log('== Variabel CSS (tema)');
+{
+  const cssText = readFileSync(join(root, 'styles.css'), 'utf8');
+  const defined = new Set([...cssText.matchAll(/(--[a-z0-9-]+)\s*:/g)].map((m) => m[1]));
+  const used = new Set();
+  for (const f of [...jsFiles, ...pages, join(root, 'demo.html')]) {
+    let txt = '';
+    try { txt = readFileSync(f, 'utf8'); } catch { continue; }
+    for (const m of txt.matchAll(/var\((--[a-z0-9-]+)/g)) used.add(m[1]);
+  }
+  // --dx/--rot diisi dari JS per elemen konfeti (bukan variabel tema)
+  const RUNTIME = new Set(['--dx', '--rot']);
+  const missing = [...used].filter((v) => !defined.has(v) && !RUNTIME.has(v));
+  if (missing.length) bad(`variabel CSS tidak terdefinisi: ${missing.join(', ')}`);
+  else ok(`${used.size} variabel CSS dipakai, semuanya terdefinisi`);
+
+  // palet referensi harus ada
+  for (const hex of ['#CBBDA6', '#E0DACD', '#553D29', '#83322D', '#455026']) {
+    if (!cssText.toUpperCase().includes(hex)) bad(`warna palet ${hex} tidak ditemukan di styles.css`);
+  }
+  ok('5 warna palet referensi tersedia di styles.css');
+}
+
 // ------------------------------------------------------- referensi antar modul
 console.log('== Import antar modul');
 for (const f of jsFiles) {

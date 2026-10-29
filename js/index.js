@@ -62,17 +62,43 @@ function renderInvite(info) {
   show('invite');
 }
 
-function renderSuccess({ name, org, lottery_no, preamble }) {
+/** Ringkasan anggota keluarga + kupon makan + souvenir di layar hasil. */
+function renderExtras(id, info = {}) {
+  const box = document.getElementById(id);
+  if (!box) return;
+  const family = Number(info.family ?? info.family_count ?? 0) || 0;
+  const meal = Boolean(info.meal ?? info.wants_meal);
+  const souvenir = Boolean(info.souvenir ?? info.wants_souvenir);
+
+  const items = [];
+  if (family > 0) items.push(`👨‍👩‍👧 ${family} anggota keluarga`);
+  if (meal) items.push('🍱 Kupon makan');
+  if (souvenir) items.push('🎁 Souvenir');
+
+  box.innerHTML = items.length
+    ? `<div class="notice notice--info"><span class="notice__icon" aria-hidden="true">🧾</span>
+         <div><strong>Tercatat panitia:</strong> ${items.join(' · ')}.${
+           meal || souvenir ? ' Silakan ambil di meja registrasi.' : ''}</div></div>`
+    : '';
+  box.classList.toggle('hidden', items.length === 0);
+}
+
+function renderSuccess({ name, org, lottery_no, preamble, family = 0, meal = false, souvenir = false }) {
   document.getElementById('success-greeting').textContent = preamble || `Selamat datang, ${name}! ✅`;
   document.getElementById('success-sub').textContent = org ? `dari ${org}` : 'Kehadiran Anda berhasil dicatat.';
   document.getElementById('success-no').textContent = pad3(lottery_no);
+
+  renderExtras('success-extras', { family, meal, souvenir });
+
   show('success');
+  document.getElementById('btn-submit')?.blur();
 }
 
 function renderAlready(info) {
   document.getElementById('already-time').textContent = fmtTime(info.attended_at);
   document.getElementById('already-no').textContent = pad3(info.lottery_no);
   document.getElementById('already-name').textContent = info.name || '';
+  renderExtras('already-extras', info);
   show('already');
 }
 
@@ -106,12 +132,41 @@ function renderOffline() {
     if (token) {
       const cap = document.createElement('p');
       cap.className = 'small mono';
-      cap.style.cssText = 'margin:8px 0 0;color:var(--snow-dim);word-break:break-all';
+      cap.style.cssText = 'margin:8px 0 0;color:var(--ink-soft);word-break:break-all';
       cap.textContent = `Kode undangan: ${token}`;
       box.append(cap);
     }
   } catch { /* QR gagal dibuat: abaikan */ }
   show('offline');
+}
+
+/* --------------------------------- anggota keluarga & kupon/souvenir */
+/** Buat kolom nama sesuai jumlah anggota keluarga yang dipilih (maks 5). */
+function renderFamilyInputs(count) {
+  const wrap = document.getElementById('family-names-wrap');
+  const box = document.getElementById('family-names');
+  if (!wrap || !box) return;
+
+  const n = Math.max(0, Math.min(5, Number(count) || 0));
+  wrap.classList.toggle('hidden', n === 0);
+  if (n === 0) { box.innerHTML = ''; return; }
+
+  // pertahankan isian yang sudah diketik saat jumlah diubah
+  const existing = [...box.querySelectorAll('input')].map((i) => i.value);
+  box.innerHTML = Array.from({ length: n }, (_, i) => `
+    <label class="field" style="margin:0">
+      <div class="family-input-wrap">
+        <span class="family-num">${i + 1}.</span>
+        <input class="input" data-family-name maxlength="60" autocomplete="off"
+               placeholder="Nama anggota keluarga ${i + 1}" value="${existing[i] ? existing[i].replace(/"/g, '&quot;') : ''}">
+      </div>
+    </label>`).join('');
+}
+
+function readFamilyNames() {
+  return [...document.querySelectorAll('#family-names [data-family-name]')]
+    .map((i) => i.value.trim())
+    .filter((v) => v.length >= 2);
 }
 
 /* ------------------------------------------------------------------ alur */
@@ -214,7 +269,10 @@ async function submitWalkin(ev) {
   const phoneRaw = document.getElementById('f-phone').value.trim();
   const phone = normPhone(phoneRaw);
   const org = document.getElementById('f-org').value.trim();
-  const family = Number(document.getElementById('f-family').value || 0);
+  const family = Math.min(5, Number(document.getElementById('f-family').value || 0));
+  const familyNames = readFamilyNames();
+  const meal = document.getElementById('f-meal').checked;
+  const souvenir = document.getElementById('f-souvenir').checked;
 
   if (name.length < 2) {
     toast('Nama lengkap wajib diisi (minimal 2 huruf).', 'err');
@@ -233,7 +291,7 @@ async function submitWalkin(ev) {
   btn.textContent = 'Memproses…';
 
   try {
-    const res = await api.walkinRegister(name, phone, org, family);
+    const res = await api.walkinRegister(name, phone, org, family, meal, souvenir, familyNames);
     setNet(true);
 
     if (res?.ok === false) {
@@ -263,7 +321,10 @@ async function submitWalkin(ev) {
 
     renderSuccess({
       name: res.name, org: res.org, lottery_no: res.lottery_no,
-      preamble: `Selamat datang, ${res.name}! ✅`
+      preamble: `Selamat datang, ${res.name}! ✅`,
+      family: res.family_count || 0,
+      meal: Boolean(res.wants_meal),
+      souvenir: Boolean(res.wants_souvenir)
     });
   } catch (err) {
     if (err?.code === 'offline') {
@@ -282,6 +343,7 @@ async function submitWalkin(ev) {
 /* ------------------------------------------------------------------ event */
 function bind() {
   document.getElementById('btn-confirm')?.addEventListener('click', confirmAttendance);
+  document.getElementById('f-family')?.addEventListener('change', (e) => renderFamilyInputs(e.target.value));
   document.getElementById('walkin-form')?.addEventListener('submit', submitWalkin);
   document.getElementById('btn-retry')?.addEventListener('click', () => boot());
   document.getElementById('btn-retry2')?.addEventListener('click', () => boot());

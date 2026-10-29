@@ -120,6 +120,36 @@ function renderAll() {
   renderSettings();
 }
 
+/* ================================================ keluarga & konsumsi */
+/** "Ani, Budi ,, Citra" -> ['Ani','Budi','Citra'] (maks 5, tanpa duplikat). */
+function parseNames(raw) {
+  const out = [];
+  const seen = new Set();
+  for (const part of String(raw || '').split(/[,;\n]/)) {
+    const name = part.trim().replace(/\s+/g, ' ');
+    if (name.length < 2) continue;
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(name);
+    if (out.length === 5) break;
+  }
+  return out;
+}
+
+/** Label ringkas "🍱 Makan · 🎁 Souvenir · 👨‍👩‍👧 2 keluarga". */
+function extrasLabel(p) {
+  const bits = [];
+  if (p.wants_meal) bits.push('🍱 Makan');
+  if (p.wants_souvenir) bits.push('🎁 Souvenir');
+  if (p.family_count > 0) {
+    const names = Array.isArray(p.family_names) ? p.family_names : [];
+    const tip = names.length ? ` title="${esc(names.join(', '))}"` : '';
+    bits.push(`<span${tip}>👨‍👩‍👧 ${p.family_count}</span>`);
+  }
+  return bits.length ? bits.join(' · ') : '—';
+}
+
 /* =============================================================== statistik */
 function computeStats() {
   const p = S.data.participants;
@@ -151,6 +181,19 @@ function renderStats() {
   set('s-walkin', s.walkinPresent ? `${s.walkinPresent}/${s.walkin}` : s.walkin);
   set('s-present', s.present);
   set('s-winners', s.winners);
+
+  // konsumsi: pakai angka resmi dari server (sudah termasuk anggota keluarga)
+  const t = S.data.totals || {};
+  const meal = t.meal_with_family ?? t.meal ?? 0;
+  const souvenir = t.souvenir_with_family ?? t.souvenir ?? 0;
+  set('s-people', t.people_present ?? s.present);
+  set('s-family', t.family_present ?? 0);
+  set('s-meal', meal);
+  set('s-souvenir', souvenir);
+  const mealNote = document.getElementById('s-meal-note');
+  if (mealNote) mealNote.textContent = t.meal_with_family != null
+    ? `${t.meal || 0} peserta + ${t.family_present || 0} keluarga`
+    : 'termasuk keluarga';
 
   const box = document.getElementById('source-breakdown');
   const entries = Object.entries(s.bySource);
@@ -215,6 +258,7 @@ function renderRekap() {
           : '<span class="pill pill--belum">Belum</span>'}</td>
         <td data-label="Waktu">${esc(fmtTime(p.attended_at))}</td>
         <td data-label="Sumber">${esc(sourceLabel(p.source))}${p.invited ? '' : ' <span class="pill pill--walkin">tanpa undangan</span>'}</td>
+        <td data-label="Konsumsi"><span class="small">${extrasLabel(p)}</span></td>
         <td data-label="Aksi">
           <div class="actions">
             <button class="btn btn--outline btn--sm" data-act="toggle" data-id="${esc(p.id)}">${p.attended ? 'Batal' : 'Hadir'}</button>
@@ -225,7 +269,7 @@ function renderRekap() {
           </div>
         </td>
       </tr>`;
-  }).join('') || `<tr><td colspan="9" style="text-align:center;padding:22px;color:#4a6157">Tidak ada data sesuai filter.</td></tr>`;
+  }).join('') || `<tr><td colspan="10" style="text-align:center;padding:22px;color:var(--ink-soft)">Tidak ada data sesuai filter.</td></tr>`;
 }
 
 /* ======================================================== import undangan */
@@ -511,6 +555,9 @@ function csvRows() {
     Asal: p.org || '',
     'No. HP': p.phone || '',
     'Jumlah Keluarga': p.family_count || 0,
+    'Anggota Keluarga': Array.isArray(p.family_names) ? p.family_names.join(', ') : '',
+    'Kupon Makan': p.wants_meal ? 'Ya' : 'Tidak',
+    'Souvenir': p.wants_souvenir ? 'Ya' : 'Tidak',
     'Jenis': p.invited ? 'Undangan' : 'Tanpa undangan',
     Hadir: p.attended ? 'Ya' : 'Tidak',
     'Waktu Hadir': p.attended_at ? fmtDateTime(p.attended_at) : '',
@@ -767,6 +814,8 @@ function openPersonDialog() {
   document.getElementById('person-form').reset();
   document.getElementById('p-attended').checked = true;
   document.getElementById('p-family').value = '0';
+  document.getElementById('p-meal').checked = false;
+  document.getElementById('p-souvenir').checked = false;
   document.getElementById('person-error').classList.add('hidden');
   document.getElementById('dialog-person').showModal();
 }
@@ -778,8 +827,10 @@ async function submitPerson(ev) {
   const name = document.getElementById('p-name').value.trim();
   const phone = normPhone(document.getElementById('p-phone').value);
   const org = document.getElementById('p-org').value.trim();
-  const family = Number(document.getElementById('p-family').value || 0);
+  const family = Math.min(5, Number(document.getElementById('p-family').value || 0));
   const attended = document.getElementById('p-attended').checked;
+  const meal = document.getElementById('p-meal').checked;
+  const souvenir = document.getElementById('p-souvenir').checked;
 
   if (name.length < 2) {
     document.getElementById('person-error-text').textContent = 'Nama lengkap wajib diisi.';
@@ -790,7 +841,9 @@ async function submitPerson(ev) {
   const btn = document.getElementById('btn-person-save');
   await withBusy(btn, 'Menyimpan…', async () => {
     try {
-      const res = await api.adminAdd(S.pin, { name, phone, org, family_count: family, attended, invited: false });
+      const res = await api.adminAdd(S.pin, {
+        name, phone, org, family_count: family, attended, invited: false, meal, souvenir
+      });
       if (!res?.ok) throw new Error(res?.message || 'Gagal menambah peserta.');
       document.getElementById('dialog-person').close();
       await reload(true);
@@ -810,7 +863,10 @@ function openEditDialog(id) {
   document.getElementById('e-name').value = p.name;
   document.getElementById('e-phone').value = p.phone || '';
   document.getElementById('e-org').value = p.org || '';
-  document.getElementById('e-family').value = p.family_count || 0;
+  document.getElementById('e-family').value = String(Math.min(5, p.family_count || 0));
+  document.getElementById('e-family-names').value = Array.isArray(p.family_names) ? p.family_names.join(', ') : '';
+  document.getElementById('e-meal').checked = Boolean(p.wants_meal);
+  document.getElementById('e-souvenir').checked = Boolean(p.wants_souvenir);
   document.getElementById('edit-error').classList.add('hidden');
   document.getElementById('dialog-edit').showModal();
 }
@@ -823,7 +879,10 @@ async function submitEdit(ev) {
     name: document.getElementById('e-name').value.trim(),
     phone: document.getElementById('e-phone').value.trim(),
     org: document.getElementById('e-org').value.trim(),
-    family_count: Number(document.getElementById('e-family').value || 0)
+    family_count: Math.min(5, Number(document.getElementById('e-family').value || 0)),
+    family_names: parseNames(document.getElementById('e-family-names').value),
+    wants_meal: document.getElementById('e-meal').checked,
+    wants_souvenir: document.getElementById('e-souvenir').checked
   };
   if (fields.name.length < 2) {
     document.getElementById('edit-error-text').textContent = 'Nama lengkap wajib diisi.';

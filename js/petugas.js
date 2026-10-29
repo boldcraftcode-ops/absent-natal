@@ -183,7 +183,9 @@ function applyServerData(res) {
     id: p.id, token: p.token, name: p.name, org: p.org || '', phone: p.phone || '',
     family_count: p.family_count || 0, invited: Boolean(p.invited),
     lottery_no: p.lottery_no, attended: Boolean(p.attended),
-    attended_at: p.attended_at || null, source: p.source || 'manual'
+    attended_at: p.attended_at || null, source: p.source || 'manual',
+    wants_meal: Boolean(p.wants_meal), wants_souvenir: Boolean(p.wants_souvenir),
+    family_names: Array.isArray(p.family_names) ? p.family_names : []
   }));
 
   // Pertahankan aksi lokal yang belum tersinkron
@@ -197,7 +199,8 @@ function applyServerData(res) {
           id: item.local_id, token: item.token, name: item.name, org: item.org || '',
           phone: item.phone || '', family_count: item.family_count || 0, invited: false,
           lottery_no: item.lottery_no, attended: true, attended_at: item.attended_at,
-          source: 'petugas'
+          source: 'petugas', wants_meal: Boolean(item.wants_meal),
+          wants_souvenir: Boolean(item.wants_souvenir), family_names: []
         });
       }
     }
@@ -341,6 +344,7 @@ function handleToken(token) {
   if (person.attended) {
     showScanCard({
       kind: 'dup',
+      extras: extrasLine(person),
       title: 'Sudah absen',
       name: person.name,
       no: person.lottery_no,
@@ -376,6 +380,7 @@ function attendPerson(person, source) {
 
   showScanCard({
     kind: 'ok',
+    extras: extrasLine(person),
     title: 'Hadir tercatat',
     name: person.name,
     no: person.lottery_no,
@@ -413,7 +418,21 @@ function renderLog() {
 }
 
 let resetTimer = null;
-function showScanCard({ kind, title, name, no, meta }) {
+/** Baris ringkas keluarga + kupon + souvenir untuk kartu hasil. */
+function extrasLine(person) {
+  if (!person) return '';
+  const bits = [];
+  const fam = Number(person.family_count) || 0;
+  if (fam > 0) {
+    const names = Array.isArray(person.family_names) ? person.family_names : [];
+    bits.push(`👨‍👩‍👧 ${fam} keluarga${names.length ? ` (${esc(names.join(', '))})` : ''}`);
+  }
+  if (person.wants_meal) bits.push('🍱 Kupon makan');
+  if (person.wants_souvenir) bits.push('🎁 Souvenir');
+  return bits.join(' · ');
+}
+
+function showScanCard({ kind, title, name, no, meta, extras = '' }) {
   const box = document.getElementById('scan-result');
   if (!box) return;
   box.classList.remove('hidden');
@@ -423,6 +442,7 @@ function showScanCard({ kind, title, name, no, meta }) {
       <div class="scan-card__name">${esc(name)}</div>
       ${no ? `<div class="scan-card__no">${esc(pad3(no))}</div>
               <div class="scan-card__meta">Sebutkan nomor undian: <strong>${esc(pad3(no))}</strong></div>` : ''}
+      ${extras ? `<div class="scan-card__meta">${extras}</div>` : ''}
       <div class="scan-card__meta" style="margin-top:6px">${esc(meta || '')}</div>
     </div>`;
   box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -502,7 +522,9 @@ async function submitAdd(ev) {
   const phoneRaw = document.getElementById('add-phone').value.trim();
   const phone = normPhone(phoneRaw);
   const org = document.getElementById('add-org').value.trim();
-  const family = Number(document.getElementById('add-family').value || 0);
+  const family = Math.min(5, Number(document.getElementById('add-family').value || 0));
+  const meal = document.getElementById('add-meal').checked;
+  const souvenir = document.getElementById('add-souvenir').checked;
 
   if (name.length < 2) { toast('Nama lengkap wajib diisi.', 'err'); return; }
 
@@ -540,14 +562,16 @@ async function submitAdd(ev) {
 
   S.people.push({
     id: localId, token, name, org, phone, family_count: family, invited: false,
-    lottery_no: no, attended: true, attended_at: at, source: 'petugas', pending: true
+    lottery_no: no, attended: true, attended_at: at, source: 'petugas', pending: true,
+    wants_meal: meal, wants_souvenir: souvenir, family_names: []
   });
   S.people.sort((a, b) => a.lottery_no - b.lottery_no);
   save.people();
 
   enqueue({
     kind: 'new', local_id: localId, token, name, phone, org,
-    family_count: family, lottery_no: no, attended_at: at, source: 'petugas'
+    family_count: family, lottery_no: no, attended_at: at, source: 'petugas',
+    wants_meal: meal, wants_souvenir: souvenir
   });
 
   addLog({ name, lottery_no: no, at, status: 'ok' });
@@ -559,11 +583,18 @@ async function submitAdd(ev) {
       <div class="scan-card__name">${esc(name)}</div>
       <div class="scan-card__no">${esc(pad3(no))}</div>
       <div class="scan-card__meta">Sebutkan nomor undian: <strong>${esc(pad3(no))}</strong></div>
+      <div class="scan-card__meta">${[
+        family > 0 ? `👨‍👩‍👧 ${family} keluarga` : '',
+        meal ? '🍱 Kupon makan' : '',
+        souvenir ? '🎁 Souvenir' : ''
+      ].filter(Boolean).join(' · ') || 'Tanpa kupon &amp; tanpa keluarga'}</div>
     </div>`;
   beep('ok'); vibrate(90);
 
   document.getElementById('add-form').reset();
   document.getElementById('add-family').value = '0';
+  document.getElementById('add-meal').checked = false;
+  document.getElementById('add-souvenir').checked = false;
   document.getElementById('add-name').focus();
   updateChrome();
   renderSearch();
@@ -597,7 +628,10 @@ async function syncNow(silent = false) {
       family_count: q.family_count || 0,
       lottery_no: q.lottery_no || null,
       attended_at: q.attended_at || null,
-      source: q.source || 'petugas'
+      source: q.source || 'petugas',
+      wants_meal: Boolean(q.wants_meal),
+      wants_souvenir: Boolean(q.wants_souvenir),
+      family_names: Array.isArray(q.family_names) ? q.family_names : null
     }));
 
     const res = await api.staffSync(S.pin, batch);

@@ -50,22 +50,23 @@ const html = `<!DOCTYPE html>
 ${css}
 /* --- khusus halaman pratinjau --- */
 .demo-nav { position: sticky; top: 0; z-index: 50; display: flex; gap: 6px; flex-wrap: wrap;
-  padding: 10px 14px; background: rgba(6,30,22,.94); border-bottom: 1px solid rgba(212,175,55,.3); }
-.demo-nav a { color: var(--snow-dim); font: 600 .78rem var(--font-ui); text-decoration: none;
-  padding: 7px 12px; border-radius: 999px; border: 1px solid rgba(246,231,181,.3); }
-.demo-nav a:hover { background: rgba(212,175,55,.15); color: var(--gold-200); }
+  padding: 10px 14px; background: rgba(53,32,22,.96); border-bottom: 3px solid #83322D; }
+.demo-nav a { color: var(--kraft-300); font: 600 .78rem var(--font-ui); text-decoration: none;
+  padding: 7px 12px; border-radius: 999px; border: 1px solid rgba(235,222,203,.32); }
+.demo-nav a:hover { background: rgba(217,169,107,.2); color: var(--kraft-100); }
 .demo-label { display: inline-block; margin-bottom: 10px; padding: 4px 10px; border-radius: 999px;
-  background: rgba(212,175,55,.18); border: 1px solid rgba(212,175,55,.5);
-  color: var(--gold-200); font: 700 .7rem var(--font-ui); letter-spacing: .08em; text-transform: uppercase; }
+  background: rgba(217,169,107,.22); border: 1px solid rgba(217,169,107,.55);
+  color: #FFF6E4; font: 700 .7rem var(--font-ui); letter-spacing: .08em; text-transform: uppercase; }
 .demo-block { padding: 26px 0 8px; }
 .demo-grid2 { display: grid; gap: 14px; grid-template-columns: 1fr; }
 @media (min-width: 900px) { .demo-grid2 { grid-template-columns: 1fr 1fr; } }
 .demo-phone { max-width: 400px; margin: 0 auto; }
 .screen-demo { position: relative; height: auto; min-height: 0; border-radius: 18px; overflow: hidden;
-  padding: 18px; border: 1px solid rgba(212,175,55,.35);
-  background: radial-gradient(900px 520px at 50% -8%, #157a56 0%, transparent 60%),
-    radial-gradient(700px 420px at 8% 100%, #6d1119 0%, transparent 55%),
-    linear-gradient(170deg, #072a1e 0%, #04150f 100%); }
+  padding: 18px; border: 2px solid rgba(235,222,203,.4);
+  background: radial-gradient(900px 520px at 50% -8%, #4A5127 0%, transparent 62%),
+    radial-gradient(760px 460px at 4% 104%, rgba(131,50,45,.55) 0%, transparent 60%),
+    radial-gradient(760px 460px at 98% 96%, rgba(85,61,41,.6) 0%, transparent 60%),
+    linear-gradient(170deg, #2E3516 0%, #241A12 55%, #1B120C 100%); }
 .digit-demo { font-size: clamp(3.4rem, 12vw, 7rem); }
 </style>
 </head>
@@ -84,8 +85,8 @@ ${css}
 
   <section class="demo-block center">
     <span class="demo-label">Pratinjau desain statis · data contoh</span>
-    <h1 style="font-family:var(--font-display);color:var(--gold-200);margin:0 0 4px">Absensi &amp; Undian Natal</h1>
-    <p class="small" style="color:var(--snow-dim);margin:0">
+    <h1 style="font-family:var(--font-display);color:var(--cocoa-800);margin:0 0 4px">Absensi &amp; Undian Natal</h1>
+    <p class="small" style="color:var(--ink-soft);margin:0">
       Halaman ini hanya pratinjau tampilan. Aplikasi sebenarnya: index.html · petugas.html · admin.html · undian.html
     </p>
   </section>
@@ -105,6 +106,11 @@ ${css}
             <div class="number number--hero">007</div>
           </div>
           <div class="screenshot-hint">📸 Screenshot nomor ini untuk undian</div>
+          <div class="notice notice--info">
+            <span class="notice__icon" aria-hidden="true">🧾</span>
+            <div><strong>Tercatat panitia:</strong> 👨‍👩‍👧 2 anggota keluarga · 🍱 Kupon makan.
+              Silakan ambil di meja registrasi.</div>
+          </div>
           <div class="notice notice--success">
             <span class="notice__icon" aria-hidden="true">🍀</span>
             <div>Nomor ini adalah nomor undian Anda. Simpan sampai acara selesai.</div>
@@ -138,6 +144,35 @@ ${css}
           <label class="field"><span class="label">No. HP / WhatsApp *</span>
             <input class="input" value="0817 000 111" readonly>
             <span class="hint">Satu nomor HP = satu peserta.</span></label>
+          <label class="field"><span class="label">Jumlah anggota keluarga yang ikut</span>
+            <select class="select" disabled>
+              <option>Tidak membawa keluarga</option>
+              <option>1 orang</option>
+              <option selected>2 orang</option>
+              <option>3 orang</option>
+              <option>4 orang</option>
+              <option>5 orang (maksimal)</option>
+            </select></label>
+          <div class="field">
+            <span class="label">Nama anggota keluarga (opsional)</span>
+            <input class="input" value="Yosef" readonly>
+            <input class="input" value="Maria" readonly style="margin-top:8px">
+          </div>
+          <fieldset class="check-card">
+            <legend class="check-card__legend">Ambil di meja registrasi</legend>
+            <label class="check-row">
+              <input type="checkbox" checked disabled>
+              <span class="check-row__box" aria-hidden="true">🍱</span>
+              <span class="check-row__text"><strong>Kupon Makan</strong>
+                <span>Termasuk anggota keluarga yang ikut</span></span>
+            </label>
+            <label class="check-row">
+              <input type="checkbox" disabled>
+              <span class="check-row__box" aria-hidden="true">🎁</span>
+              <span class="check-row__text"><strong>Souvenir</strong>
+                <span>Satu souvenir untuk setiap peserta yang hadir</span></span>
+            </label>
+          </fieldset>
           <button class="btn btn--red btn--block">Konfirmasi Hadir</button>
         </div>
       </div>
@@ -169,6 +204,7 @@ ${css}
           <div class="scan-card__name">Siti Aminah</div>
           <div class="scan-card__no">027</div>
           <div class="scan-card__meta">Sebutkan nomor undian: <strong>027</strong></div>
+          <div class="scan-card__meta">👨‍👩‍👧 2 keluarga (Yosef, Maria) · 🍱 Kupon makan</div>
           <div class="scan-card__meta" style="margin-top:6px">Keuangan · 081311112222</div>
         </div>
         <div class="scan-card scan-card--dup">
@@ -196,6 +232,15 @@ ${css}
       <div class="stat stat--accent"><div class="stat__label">Tanpa undangan</div><div class="stat__value">8/12</div></div>
       <div class="stat stat--gold"><div class="stat__label">Total hadir</div><div class="stat__value">214</div></div>
       <div class="stat"><div class="stat__label">Pemenang</div><div class="stat__value">3</div></div>
+    </div>
+
+    <div class="stats">
+      <div class="stat"><div class="stat__label">Total jiwa hadir</div><div class="stat__value">251</div></div>
+      <div class="stat"><div class="stat__label">Anggota keluarga</div><div class="stat__value">37</div></div>
+      <div class="stat stat--accent"><div class="stat__label">🍱 Kupon makan</div>
+        <div class="stat__value">198</div>
+        <div class="small" style="color:var(--ink-soft)">161 peserta + 37 keluarga</div></div>
+      <div class="stat stat--gold"><div class="stat__label">🎁 Souvenir</div><div class="stat__value">176</div></div>
     </div>
 
     <div class="card card--flat stack" style="padding:14px;margin-top:14px">
@@ -242,7 +287,7 @@ ${css}
       <div class="center">
         <h2 class="screen-title">Perayaan Natal 2026</h2>
         <div class="screen-prize">Kulkas 2 Pintu</div>
-        <div class="small" style="color:var(--snow-dim)">Sisa 2 pemenang dari 2 · 214 kandidat</div>
+        <div class="small" style="color:var(--kraft-300)">Sisa 2 pemenang dari 2 · 214 kandidat</div>
       </div>
       <div class="center" style="padding:22px 0 8px">
         <div class="digits">
@@ -291,12 +336,12 @@ ${css}
         <div class="inv-card__foot">Pindai QR untuk konfirmasi kehadiran.<br>Nomor undian muncul setelah scan.</div>
       </div>`).join('')}
     </div>
-    <p class="small center" style="color:var(--snow-dim);margin-top:10px">
+    <p class="small center" style="color:var(--ink-soft);margin-top:10px">
       (Pola kotak pada pratinjau ini hanya pengganti QR asli.)
     </p>
   </section>
 
-  <footer class="center small" style="color:var(--snow-dim);padding:24px 0 40px">
+  <footer class="center small" style="color:var(--ink-soft);padding:24px 0 40px">
     Pratinjau desain · dibuat otomatis oleh tools/make-demo.mjs
   </footer>
 </main>

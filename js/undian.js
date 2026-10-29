@@ -195,7 +195,8 @@ function setControls(state) {
 /* ============================================================== konfeti */
 function confetti(count = 90) {
   const layer = document.getElementById('confetti');
-  const colors = ['#d4af37', '#e8c86a', '#b3212b', '#f6e7b5', '#ffffff', '#15803d'];
+  // palet kertas–kayu: karamel, krem, bata, olive, cokelat
+  const colors = ['#D9A96B', '#EBDECB', '#83322D', '#455026', '#BB9A7C', '#FFFDF7'];
   for (let i = 0; i < count; i++) {
     const piece = document.createElement('div');
     piece.className = 'confetti-piece';

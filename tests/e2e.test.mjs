@@ -119,7 +119,24 @@ async function runPage(file, { query = '', fetch: fetchImpl, storage = {}, befor
       w.alert = () => {};
       w.print = () => {};
       w.HTMLElement.prototype.scrollIntoView = () => {};
+      // jsdom belum mengimplementasikan <dialog>.showModal()
+      if (w.HTMLDialogElement) {
+        w.HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', ''); };
+        w.HTMLDialogElement.prototype.show = function () { this.setAttribute('open', ''); };
+        w.HTMLDialogElement.prototype.close = function () { this.removeAttribute('open'); };
+      }
       w.HTMLAnchorElement.prototype.click = function () { w.__downloaded = this.download; };
+      // rekam isi unduhan agar kolom ekspor bisa diperiksa
+      const revoke = w.URL.revokeObjectURL;
+      w.__blobText = w.__blobText || {};
+      w.URL.createObjectURL = (blob) => {
+        const url = 'blob:uji-' + (Object.keys(w.__blobText).length + 1);
+        try {
+          if (blob && typeof blob.text === 'function') blob.text().then((t) => { w.__blobText[url] = t; });
+          else if (blob) w.__blobText[url] = String(blob.__text || '');
+        } catch { /* abaikan */ }
+        return url;
+      };
       w.URL.createObjectURL = () => 'blob:uji';
       w.URL.revokeObjectURL = () => {};
       w.navigator.vibrate = () => true;
@@ -209,6 +226,18 @@ function setFetchForAll(fn) {
   for (const w of OPEN_WINDOWS) w.fetch = fn;
 }
 const OPEN_WINDOWS = [];
+/** Modul ES memakai `document` global: arahkan ke halaman yang sedang diuji. */
+function usePage(page) {
+  for (const name of ['document', 'window', 'localStorage', 'sessionStorage', 'location', 'navigator']) {
+    try {
+      Object.defineProperty(globalThis, name, {
+        value: page.window[name] ?? page.window, configurable: true, writable: true
+      });
+    } catch { /* properti read-only: pakai versi Node */ }
+  }
+  return page;
+}
+
 const click = (page, sel) => page.window.document.querySelector(sel).click();
 const fire = (page, sel, type = 'submit') => page.window.document
   .querySelector(sel).dispatchEvent(new page.window.Event(type, { bubbles: true, cancelable: true }));
@@ -743,6 +772,160 @@ console.log('== 19. Keamanan & absensi ditutup');
   check('tombol konfirmasi dinonaktifkan', page.$('#btn-confirm').disabled === true);
   page.close();
   await rpc('admin_set_setting', { p_pin: 'admin1234', p_key: 'attendance_open', p_value: 'true' });
+}
+
+
+console.log('== 20. Form peserta — keluarga (maks 5), kupon makan & souvenir');
+{
+  const page0 = await runPage('index.html', {});
+  await until(() => page0.visible('view-form'), { label: 'form umum' });
+  const opts = [...page0.$('#f-family').querySelectorAll('option')].map((o) => o.value);
+  check('dropdown keluarga 0-5', opts.join(',') === '0,1,2,3,4,5', opts.join(','));
+  check('jumlah keluarga memakai dropdown', page0.$('#f-family').tagName === 'SELECT');
+  check('checkbox kupon makan & souvenir ada',
+    Boolean(page0.$('#f-meal')) && Boolean(page0.$('#f-souvenir')));
+  check('label checkbox sesuai permintaan',
+    page0.$('#walkin-form').textContent.includes('Kupon Makan') &&
+    page0.$('#walkin-form').textContent.includes('Souvenir'));
+
+  const sel = page0.$('#f-family');
+  const pilih = (v) => {
+    sel.value = v;
+    sel.dispatchEvent(new page0.window.Event('change', { bubbles: true }));
+  };
+  pilih('3');
+  await sleep(60);
+  check('kolom nama muncul sesuai jumlah',
+    page0.document.querySelectorAll('#family-names [data-family-name]').length === 3);
+  pilih('0');
+  await sleep(60);
+  check('kolom nama disembunyikan saat 0', page0.visible('family-names-wrap') === false);
+
+  page0.$('#f-name').value = 'Ratna Keluarga';
+  page0.$('#f-phone').value = '0813 4444 5555';
+  page0.$('#f-org').value = 'Wilayah Medan Baru';
+  pilih('2');
+  await sleep(60);
+  const nameInputs = [...page0.document.querySelectorAll('#family-names [data-family-name]')];
+  nameInputs[0].value = 'Yosef';
+  nameInputs[1].value = 'Maria';
+  page0.$('#f-meal').checked = true;
+  page0.$('#f-souvenir').checked = false;
+  fire(page0, '#walkin-form');
+  await until(() => page0.visible('view-success'), { label: 'sukses walk-in' });
+
+  const row = (await sql("select * from participants where phone='081344445555'"))[0];
+  check('jumlah keluarga tersimpan', row && row.family_count === 2, String(row && row.family_count));
+  check('kupon makan tersimpan', row && row.wants_meal === true);
+  check('souvenir tidak dicentang -> false', row && row.wants_souvenir === false);
+  const names = row
+    ? (await sql('select name from family_members where participant_id=$1 order by position', [row.id])).map((x) => x.name)
+    : [];
+  check('nama anggota keluarga tersimpan berurutan', names.join(',') === 'Yosef,Maria', names.join(','));
+
+  const extras = page0.$('#success-extras').textContent;
+  check('layar sukses menampilkan jumlah keluarga', /2 anggota keluarga/.test(extras), extras);
+  check('layar sukses menampilkan kupon makan', /Kupon makan/.test(extras), extras);
+  page0.close();
+
+  const paksa = await rpc('walkin_register', {
+    p_name: 'Rombongan Besar', p_phone: '081355550000', p_org: null, p_family: 5,
+    p_meal: true, p_souvenir: true,
+    p_family_names: JSON.stringify(['A1', 'B2', 'C3', 'D4', 'E5', 'F6', 'G7'])
+  });
+  const fam = await sql('select count(*)::int c from family_members where participant_id=$1', [paksa.id]);
+  check('server memotong anggota keluarga jadi 5', fam[0].c === 5, String(fam[0].c));
+}
+
+console.log('== 21. Admin & petugas — kupon, souvenir, anggota keluarga');
+{
+  usePage(admin);
+  click(admin, '#tab-rekap');
+  await sleep(200);
+  click(admin, '#btn-add-person');
+  await until(() => admin.visible('dialog-person'), { label: 'dialog tambah' });
+  admin.$('#p-name').value = 'Tamu Meja VIP';
+  admin.$('#p-phone').value = '081377778888';
+  admin.$('#p-org').value = 'Meja VIP';
+  admin.$('#p-family').value = '1';
+  admin.$('#p-meal').checked = true;
+  admin.$('#p-souvenir').checked = true;
+  fire(admin, '#person-form');
+  await until(async () => (await sql("select 1 from participants where phone='081377778888'")).length === 1,
+    { label: 'peserta manual baru' });
+  const vip = (await sql("select * from participants where phone='081377778888'"))[0];
+  check('admin: tambah manual menyimpan kupon', vip.wants_meal === true && vip.wants_souvenir === true);
+  check('admin: tambah manual menyimpan keluarga', vip.family_count === 1);
+
+  await until(() => admin.$('#rekap-body').textContent.includes('Tamu Meja VIP'), { label: 'baris tabel' });
+  check('tabel rekap menampilkan kolom konsumsi',
+    /Konsumsi/.test(admin.$('#panel-rekap').textContent) && /Makan/.test(admin.$('#rekap-body').textContent));
+
+  admin.document.querySelector(`#rekap-body [data-act="edit"][data-id="${vip.id}"]`)?.click();
+  await until(() => admin.visible('dialog-edit'), { label: 'dialog edit' });
+  admin.$('#e-family').value = '2';
+  admin.$('#e-family-names').value = 'Sari, , sari, Bayu';
+  admin.$('#e-meal').checked = false;
+  admin.$('#e-souvenir').checked = true;
+  fire(admin, '#edit-form');
+  await until(async () => (await sql('select family_count from participants where id=$1', [vip.id]))[0].family_count === 2,
+    { label: 'edit tersimpan' });
+  const names = (await sql('select name from family_members where participant_id=$1 order by position', [vip.id]))
+    .map((x) => x.name);
+  check('edit: nama keluarga dirapikan & duplikat dibuang', names.join(',') === 'Sari,Bayu', names.join(','));
+  const vip2 = (await sql('select * from participants where id=$1', [vip.id]))[0];
+  check('edit: kupon bisa dibatalkan', vip2.wants_meal === false && vip2.wants_souvenir === true);
+
+  await sleep(700);
+  const totals = (await rpc('admin_get_all', { p_pin: 'admin1234' })).totals;
+  check('stat kupon makan = totals.meal_with_family',
+    admin.text('#s-meal') === String(totals.meal_with_family),
+    `${admin.text('#s-meal')} vs ${totals.meal_with_family}`);
+  check('stat souvenir = totals.souvenir_with_family',
+    admin.text('#s-souvenir') === String(totals.souvenir_with_family),
+    `${admin.text('#s-souvenir')} vs ${totals.souvenir_with_family}`);
+  check('stat total jiwa hadir tampil', Number(admin.text('#s-people')) === totals.people_present,
+    admin.text('#s-people'));
+
+  // tangkap isi berkas CSV (modul memakai URL.createObjectURL milik Node)
+  const blobs = [];
+  const createAsli = URL.createObjectURL;
+  URL.createObjectURL = (blob) => { blobs.push(blob); return createAsli.call(URL, blob); };
+  admin.window.__downloaded = '';
+  click(admin, '#btn-csv');
+  await until(() => String(admin.window.__downloaded || '').endsWith('.csv'), { label: 'unduh csv' });
+  await sleep(200);
+  URL.createObjectURL = createAsli;
+  const csv = blobs.length ? await new Promise((resolve) => {
+    const reader = new admin.window.FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => resolve('');
+    reader.readAsText(blobs[0]);
+  }) : '';
+  check('CSV memuat kolom Kupon Makan', /Kupon Makan/.test(csv));
+  check('CSV memuat kolom Souvenir', /Souvenir/.test(csv));
+  check('CSV memuat kolom Anggota Keluarga', /Anggota Keluarga/.test(csv));
+  check('CSV berisi nama anggota keluarga', /Sari/.test(csv) && /Bayu/.test(csv), csv.slice(0, 160));
+
+  usePage(staff);
+  click(staff, '#tab-tambah');
+  await sleep(200);
+  staff.$('#add-name').value = 'Petugas Kupon';
+  staff.$('#add-phone').value = '081399990000';
+  staff.$('#add-family').value = '3';
+  staff.$('#add-meal').checked = true;
+  staff.$('#add-souvenir').checked = true;
+  fire(staff, '#add-form');
+  await until(() => /Petugas Kupon/.test(staff.$('#add-result').textContent), { label: 'hasil tambah' });
+  const hasil = staff.$('#add-result').textContent;
+  check('petugas: ringkasan keluarga & kupon tampil',
+    /3 keluarga/.test(hasil) && /Kupon makan/.test(hasil) && /Souvenir/.test(hasil), hasil.slice(0, 160));
+
+  await until(async () => (await sql("select 1 from participants where name='Petugas Kupon'")).length === 1,
+    { label: 'sinkron peserta petugas', timeout: 8000 });
+  const st = (await sql("select * from participants where name='Petugas Kupon'"))[0];
+  check('petugas: kupon & souvenir sampai ke server', st.wants_meal === true && st.wants_souvenir === true);
+  check('petugas: jumlah keluarga sampai ke server', st.family_count === 3, String(st.family_count));
 }
 
 console.log(`\n${pass} lulus, ${fails.length} gagal`);

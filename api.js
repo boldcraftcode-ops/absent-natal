@@ -129,9 +129,15 @@ export const api = {
   eventInfo,
   getInvite: (token) => rpc('get_invite', { p_token: token }),
   confirmAttendance: (token) => rpc('confirm_attendance', { p_token: token }),
-  walkinRegister: (name, phone, org, family) =>
+  walkinRegister: (name, phone, org, family, meal = false, souvenir = false, familyNames = []) =>
     rpc('walkin_register', {
-      p_name: name, p_phone: phone, p_org: org || null, p_family: Number(family) || 0
+      p_name: name,
+      p_phone: phone,
+      p_org: org || null,
+      p_family: Math.max(0, Math.min(5, Number(family) || 0)),
+      p_meal: Boolean(meal),
+      p_souvenir: Boolean(souvenir),
+      p_family_names: Array.isArray(familyNames) && familyNames.length ? familyNames : null
     }),
 
   // petugas
@@ -154,9 +160,13 @@ export const api = {
     p_name: payload.name,
     p_phone: payload.phone || null,
     p_org: payload.org || null,
-    p_family: Number(payload.family_count) || 0,
+    p_family: Math.max(0, Math.min(5, Number(payload.family_count) || 0)),
     p_attended: payload.attended !== false,
-    p_invited: Boolean(payload.invited)
+    p_invited: Boolean(payload.invited),
+    p_meal: Boolean(payload.meal),
+    p_souvenir: Boolean(payload.souvenir),
+    p_family_names: Array.isArray(payload.family_names) && payload.family_names.length
+      ? payload.family_names : null
   }),
   adminPrizeSave: (pin, prize) => rpc('admin_prize_save', {
     p_pin: pin,

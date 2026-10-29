@@ -2,8 +2,12 @@
 
 Aplikasi web statis untuk absensi acara Natal (±300 peserta, satu malam) dengan
 **nomor undian otomatis** dan **layar undian untuk proyektor**. Seluruh antarmuka
-berbahasa Indonesia, tema Natal (hijau tua, merah, emas, aksen salju halus),
-mobile-first (nyaman di layar 360 px).
+berbahasa Indonesia, mobile-first (nyaman di layar 360 px).
+
+**Tema visual** (mengikuti palet referensi kertas kraft & gingerbread):
+kertas kraft `#CBBDA6` / krem `#E0DACD` / `#EBDECB`, cokelat espresso `#553D29`
+dan `#352016`, merah bata (cranberry) `#83322D`, hijau olive `#455026`, dengan
+aksen karamel `#D9A96B` serta taburan salju halus.
 
 * **Frontend**: HTML + CSS + JavaScript murni (ES modules) → Netlify
 * **Database**: Supabase (Postgres), seluruh akses lewat fungsi RPC ber-PIN
@@ -42,7 +46,9 @@ natal/
 │   ├── jszip.min.js         JSZip 3.10.2 (MIT / GPLv3)
 │   └── LICENSE-*.txt        Lisensi masing-masing library
 ├── tools/
-│   └── make-demo.mjs        Pembuat demo.html (node tools/make-demo.mjs)
+│   ├── make-demo.mjs        Pembuat demo.html (node tools/make-demo.mjs)
+│   ├── make-icons.py        Pembuat ikon aplikasi (python3 tools/make-icons.py)
+│   └── check-contrast.py    Audit kontras WCAG palet (python3 tools/check-contrast.py)
 ├── supabase/
 │   └── schema.sql           Tabel, RLS, fungsi RPC, hak akses (jalankan sekali)
 └── tests/
@@ -195,7 +201,7 @@ Setelah punya domain:
 |---|---|---|
 | 1 | Peserta punya undangan | Scan QR undangan → halaman terbuka → tekan **Konfirmasi Hadir** → nomor undian 3 digit besar → screenshot |
 | 2 | HP peserta tanpa internet | Tunjukkan QR ke petugas → petugas scan di `petugas.html` → nama + nomor undian besar tampil untuk disebutkan |
-| 3 | Tanpa undangan | Scan **QR umum** di meja → isi nama, no. HP, asal, jumlah keluarga → nomor undian |
+| 3 | Tanpa undangan | Scan **QR umum** di meja → isi nama, no. HP, asal, **jumlah anggota keluarga (dropdown 0–5)**, centang **Kupon Makan** / **Souvenir** → nomor undian |
 | Petugas offline | Petugas | Scan & tambah peserta tetap jalan; antrean tersimpan; sinkron otomatis saat sinyal kembali |
 | Undian | MC | `undian.html` di proyektor; pilih hadiah → MULAI (spasi) → Konfirmasi / Tidak hadir |
 
@@ -217,6 +223,26 @@ Aturan penting yang sudah diterapkan:
   rejection sampling); animasi slot hanya tampilan. Satu orang hanya satu hadiah.
 * Hasil undian disimpan lokal dulu lalu dikirim lewat antrean ber-UUID
   (idempoten), otomatis terkirim saat sinyal kembali.
+
+### Anggota keluarga, kupon makan & souvenir
+
+* Halaman peserta memakai **dropdown** jumlah anggota keluarga **0–5** (bukan
+  kolom angka bebas). Begitu jumlah dipilih, kolom nama anggota keluarga muncul
+  sesuai jumlah tersebut — **opsional**, boleh dikosongkan.
+* Dua kotak centang tersedia: **Kupon Makan** dan **Souvenir**. Kupon makan
+  berlaku untuk peserta **beserta anggota keluarga**; souvenir satu per peserta.
+* Nama anggota keluarga dirapikan di server: spasi ganda dirapatkan, entri
+  kosong (< 2 huruf) dibuang, duplikat (tanpa peduli huruf besar/kecil) dibuang,
+  dan jumlahnya dipotong maksimal **5**. Angka `family_count` selalu disamakan
+  dengan jumlah nama yang tercatat — tetapi tidak pernah turun saat data
+  digabung (merge) dengan pendaftaran ulang.
+* Kartu statistik **🍱 Kupon makan** dan **🎁 Souvenir** di panel admin memakai
+  angka resmi server (`totals`), yaitu jumlah peserta hadir yang mencentang
+  **ditambah** anggota keluarganya.
+* Ekspor Excel & CSV memuat kolom **Jumlah Keluarga**, **Anggota Keluarga**
+  (nama digabung koma), **Kupon Makan** (Ya/Tidak), dan **Souvenir** (Ya/Tidak).
+* Petugas juga memakai dropdown 0–5 + dua kotak centang pada tab **Tambah**;
+  nilainya ikut tersimpan offline di antrean dan terkirim saat sinkron.
 
 ---
 
@@ -266,7 +292,39 @@ Aturan penting yang sudah diterapkan:
 
 ---
 
-## 12. Keamanan (ringkas)
+## 12. Tema & palet warna
+
+Seluruh warna berada di blok `:root` pada `styles.css`. Palet diambil langsung
+dari gambar referensi dan diukur dengan mengambil sampel piksel:
+
+| Peran | Nilai | Contoh pemakaian |
+|---|---|---|
+| Kertas kraft | `--kraft-200 #E0DACD`, `--kraft-300 #CBBDA6` | latar halaman (meja kraft) |
+| Krem terang | `--kraft-50 #F7F0E4`, `--kraft-100 #EBDECB` | kartu, teks di atas gelap |
+| Cokelat espresso | `--cocoa-700 #553D29`, `--cocoa-800 #352016` | topbar, angka, teks utama |
+| Merah bata | `--cran-700 #83322D`, `--cran-600 #9E3B33` | tombol utama, pita permen |
+| Hijau olive | `--olive-600 #455026`, `--olive-700 #3F4D2A` | tombol sukses, status hadir |
+| Karamel | `--honey-400 #D9A96B`, `--honey-600 #9C6B34` | nomor undian, aksen, bintang |
+
+Sentuhan tematik: latar berupa kertas kraft berbutir (garis serat halus + vinjet
+hangat) dengan taburan salju, garis **pita permen** merah-krem di bawah topbar dan
+di puncak kartu, kartu bergaya kertas (garis ganda tipis di dalam), serta tiga
+**kotak digit** pada layar undian yang memakai blok warna referensi
+(cokelat → merah bata → olive).
+
+Nama variabel lama (`--green-*`, `--red-*`, `--gold-*`, `--snow-*`) tetap tersedia
+sebagai alias agar atribut `style="..."` di HTML/JS tidak perlu diubah.
+
+**Kontras** — semua pasangan teks/latar diuji WCAG AA (≥ 4,5:1):
+
+```bash
+python3 tools/check-contrast.py   # 27 pasangan, semua lulus
+```
+
+Mengganti tema lagi cukup dengan menyunting nilai di `:root`, lalu jalankan
+`node tools/make-demo.mjs` dan `python3 tools/make-icons.py`.
+
+## 13. Keamanan (ringkas)
 
 * Tabel **tidak bisa dibaca langsung** oleh `anon` maupun `authenticated`
   (RLS tanpa policy + `revoke all`).
@@ -282,7 +340,7 @@ Aturan penting yang sudah diterapkan:
 
 ---
 
-## 13. Lisensi & atribusi library
+## 14. Lisensi & atribusi library
 
 | Library | Versi | Lisensi |
 |---|---|---|

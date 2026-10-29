@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Konfirmasi Kehadiran — Acara Natal</title>
-  <meta name="theme-color" content="#0a2f22">
+  <meta name="theme-color" content="#352016">
   <meta name="description" content="Konfirmasi kehadiran dan lihat nomor undian acara Natal.">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon-192.png" sizes="192x192">
@@ -107,6 +107,7 @@
           <span class="notice__icon" aria-hidden="true">📸</span>
           <div>Screenshot / foto nomor ini. Nomor <strong>tidak berubah</strong> walau Anda scan ulang.</div>
         </div>
+        <div id="already-extras" class="hidden" style="width:100%"></div>
       </div>
     </section>
 
@@ -115,7 +116,7 @@
       <div class="card stack center card--ribbon">
         <div class="participant-hero" style="padding:0;color:var(--ink)">
           <div class="participant-hero__orn" aria-hidden="true">🎁</div>
-          <h1 style="color:var(--green-800)" id="success-greeting">Selamat datang!</h1>
+          <h1 style="color:var(--cocoa-800)" id="success-greeting">Selamat datang!</h1>
           <p style="color:var(--ink-soft)" id="success-sub">Kehadiran Anda berhasil dicatat.</p>
         </div>
 
@@ -124,6 +125,8 @@
         </div>
 
         <div class="screenshot-hint">📸 Screenshot nomor ini untuk undian</div>
+
+        <div id="success-extras" class="hidden" style="width:100%"></div>
 
         <div class="notice notice--success">
           <span class="notice__icon" aria-hidden="true">🍀</span>
@@ -169,10 +172,46 @@
           </label>
 
           <label class="field">
-            <span class="label">Jumlah anggota keluarga yang ikut (opsional)</span>
-            <input class="input" name="family" id="f-family" type="number" inputmode="numeric"
-                   min="0" max="20" step="1" value="0">
+            <span class="label">Jumlah anggota keluarga yang ikut</span>
+            <select class="select" name="family" id="f-family">
+              <option value="0">Tidak membawa keluarga</option>
+              <option value="1">1 orang</option>
+              <option value="2">2 orang</option>
+              <option value="3">3 orang</option>
+              <option value="4">4 orang</option>
+              <option value="5">5 orang (maksimal)</option>
+            </select>
+            <span class="hint">Cukup pilih jumlahnya. Isi nama bila ingin dicatat (opsional).</span>
           </label>
+
+          <!-- nama anggota keluarga: muncul sesuai jumlah yang dipilih -->
+          <div id="family-names-wrap" class="hidden" style="margin-bottom:14px">
+            <span class="label" style="font-size:.82rem;font-weight:700;display:block;margin-bottom:6px">
+              Nama anggota keluarga (opsional)
+            </span>
+            <div id="family-names" class="stack" style="gap:8px"></div>
+            <span class="hint">Boleh dikosongkan — jumlahnya tetap tercatat untuk kebutuhan konsumsi.</span>
+          </div>
+
+          <fieldset class="check-card">
+            <legend class="check-card__legend">Ambil di meja registrasi</legend>
+            <label class="check-row">
+              <input type="checkbox" id="f-meal" name="meal">
+              <span class="check-row__box" aria-hidden="true">🍱</span>
+              <span class="check-row__text">
+                <strong>Kupon Makan</strong>
+                <span>Termasuk anggota keluarga yang ikut</span>
+              </span>
+            </label>
+            <label class="check-row">
+              <input type="checkbox" id="f-souvenir" name="souvenir">
+              <span class="check-row__box" aria-hidden="true">🎁</span>
+              <span class="check-row__text">
+                <strong>Souvenir</strong>
+                <span>Satu souvenir untuk setiap peserta yang hadir</span>
+              </span>
+            </label>
+          </fieldset>
 
           <button class="btn btn--red btn--xl btn--block" id="btn-submit" type="submit">
             Konfirmasi Hadir
@@ -210,7 +249,7 @@
       </div>
     </section>
 
-    <footer class="center small" style="color:var(--snow-dim);padding:18px 0 8px">
+    <footer class="center small" style="color:var(--ink-soft);padding:18px 0 8px">
       <span id="footer-event">Acara Natal</span> · Panitia Registrasi
     </footer>
   </main>

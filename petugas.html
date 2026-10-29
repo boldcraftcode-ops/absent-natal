@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Petugas Registrasi — Absensi Natal</title>
-  <meta name="theme-color" content="#0a2f22">
+  <meta name="theme-color" content="#352016">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <link rel="manifest" href="manifest.webmanifest">
@@ -36,7 +36,7 @@
     <section id="view-login" class="card card--ribbon stack" style="max-width:460px;margin:8vh auto 0">
       <div class="participant-hero" style="padding:0">
         <div class="participant-hero__orn" aria-hidden="true">🎄</div>
-        <h1 style="color:var(--green-800)">Masuk Petugas</h1>
+        <h1 style="color:var(--cocoa-800)">Masuk Petugas</h1>
         <p style="color:var(--ink-soft)">Masukkan PIN petugas registrasi.</p>
       </div>
       <form id="login-form" novalidate>
@@ -56,7 +56,7 @@
         <span class="notice__icon" aria-hidden="true">ℹ️</span>
         <div>Pertama kali masuk perlu internet untuk mengunduh daftar peserta. Setelah itu aplikasi bisa dipakai tanpa sinyal.</div>
       </div>
-      <p class="center small"><a href="./index.html" style="color:var(--gold-200)">← Halaman peserta</a></p>
+      <p class="center small"><a href="./index.html" style="color:var(--kraft-100)">← Halaman peserta</a></p>
     </section>
 
     <!-- ============================ APLIKASI ============================ -->
@@ -125,7 +125,7 @@
         <div id="scan-result" class="hidden"></div>
 
         <details class="card card--flat" style="padding:12px 14px">
-          <summary class="small" style="cursor:pointer;font-weight:700;color:var(--green-800)">Masukkan kode undangan manual</summary>
+          <summary class="small" style="cursor:pointer;font-weight:700;color:var(--cocoa-800)">Masukkan kode undangan manual</summary>
           <form id="manual-scan-form" class="row" style="margin-top:10px;gap:8px">
             <input class="input grow" id="manual-token" placeholder="Tempel link undangan atau 16 karakter kode" style="min-width:0">
             <button class="btn btn--outline btn--sm" type="submit">Proses</button>
@@ -180,8 +180,27 @@
             </label>
             <label class="field">
               <span class="label">Jumlah anggota keluarga yang ikut</span>
-              <input class="input" id="add-family" type="number" inputmode="numeric" min="0" max="20" value="0">
+              <select class="select" id="add-family">
+                <option value="0">Tidak membawa keluarga</option>
+                <option value="1">1 orang</option>
+                <option value="2">2 orang</option>
+                <option value="3">3 orang</option>
+                <option value="4">4 orang</option>
+                <option value="5">5 orang (maksimal)</option>
+              </select>
             </label>
+            <div class="check-card" style="margin-bottom:14px">
+              <label class="check-row">
+                <input type="checkbox" id="add-meal">
+                <span class="check-row__box" aria-hidden="true">🍱</span>
+                <span class="check-row__text"><strong>Kupon Makan</strong><span>Termasuk anggota keluarga</span></span>
+              </label>
+              <label class="check-row">
+                <input type="checkbox" id="add-souvenir">
+                <span class="check-row__box" aria-hidden="true">🎁</span>
+                <span class="check-row__text"><strong>Souvenir</strong><span>Satu per peserta hadir</span></span>
+              </label>
+            </div>
             <button class="btn btn--red btn--xl btn--block" id="btn-add" type="submit">Daftarkan &amp; Hadirkan</button>
           </form>
           <div id="add-result" class="hidden"></div>
@@ -190,14 +209,14 @@
 
       <!-- riwayat singkat -->
       <details class="card card--flat" style="padding:12px 14px">
-        <summary class="small" style="cursor:pointer;font-weight:700;color:var(--green-800)">
+        <summary class="small" style="cursor:pointer;font-weight:700;color:var(--cocoa-800)">
           Riwayat scan di HP ini (<span id="log-count">0</span>)
         </summary>
         <div id="scan-log" class="list" style="margin-top:10px"></div>
       </details>
     </section>
 
-    <footer class="center small" style="color:var(--snow-dim);padding:10px 0 24px">
+    <footer class="center small" style="color:var(--ink-soft);padding:10px 0 24px">
       Petugas Registrasi · Aplikasi tetap berjalan tanpa internet
     </footer>
   </main>

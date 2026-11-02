@@ -58,6 +58,8 @@ const jsonRes = (data, status = 200) => ({
 });
 
 async function pgFetch(url, opts = {}) {
+  // akar PostgREST (dipakai uji koneksi): Supabase menjawab 200 + spesifikasi
+  if (/\/rest\/v1\/?$/.test(String(url))) return jsonRes({ openapi: '3.0.0', info: { title: 'uji' } }, 200);
   const m = String(url).match(/\/rest\/v1\/rpc\/([a-zA-Z0-9_]+)/);
   if (!m) return jsonRes({ message: 'not found' }, 404);
   const fn = m[1];
@@ -1286,6 +1288,72 @@ console.log('== 25. Layar undian — salju bergerak');
   const c2 = diam.window.__canvasCalls?.fill || 0;
   check('reduced-motion: salju digambar sekali (tidak beranimasi)', c1 > 0 && c2 === c1, `${c1} -> ${c2}`);
   diam.close();
+}
+
+console.log('== 26. Petugas — diagnosa "schema" / sambungan database');
+{
+  // 0) PIN uji khusus: PIN bawaan sudah diganti oleh bagian 7/12, jadi tes tidak
+  //    boleh bersandar pada 'staff1234'. (PIN ini dipakai sampai akhir berkas.)
+  check('PIN uji petugas dipasang', (await rpc('admin_change_pin', {
+    p_pin: 'admin1234', p_target: 'staff', p_new_pin: 'diag9999' })).ok === true);
+
+  // 1) HAPPY PATH: server sehat -> semua baris ✅ dan fungsi database dikenali
+  const page = await runPage('petugas.html');
+  await until(() => page.visible('view-app'), { label: 'aplikasi petugas' });
+  usePage(page);
+  click(page, '#btn-db-test');
+  await until(() => /normal|masalah|catatan/i.test(page.text('#db-test-result')), { label: 'hasil diagnosa' });
+  const daftar = page.text('#db-check-list');
+  check('diagnosa: melaporkan alamat proyek', /Alamat proyek/i.test(daftar), daftar.slice(0, 160));
+  check('diagnosa: melaporkan koneksi server', /Server Supabase terhubung/i.test(daftar), daftar.slice(0, 160));
+  check('diagnosa: menyebut fungsi event_info() jalan', /event_info\(\) jalan/i.test(daftar), daftar.slice(0, 160));
+  check('diagnosa: menyebut jumlah peserta lokal', /peserta tersimpan di HP ini/i.test(daftar), daftar.slice(0, 160));
+  check('diagnosa: server normal -> tidak ada ❌', !/❌/.test(daftar) && !/PIN salah/i.test(daftar), daftar);
+  check('diagnosa: tombol tes melaporkan hasil', /✅|⚠️|❌/.test(page.text('#db-test-result')),
+    page.text('#db-test-result'));
+  check('banner pasang aplikasi ada di luar <main> (terlihat juga di layar login)',
+    page.$('#install-banner')?.parentElement?.tagName === 'BODY');
+  page.close();
+
+  // 2) SKEMA BELUM TERPASANG: PostgREST menjawab 404 PGRST202
+  const tanpaSkema = await runPage('petugas.html', {
+    fetch: async () => jsonRes({
+      code: 'PGRST202',
+      message: 'Could not find the function public.event_info in the schema cache',
+      hint: 'Perhaps you need to reload the schema cache'
+    }, 404)
+  });
+  await until(() => /HTTP 404/i.test(tanpaSkema.text('#db-check-list')), { label: 'diagnosa skema' });
+  const pesan1 = tanpaSkema.text('#db-check-list');
+  check('skema hilang: pesan menyebut schema cache + Reload', /schema cache/i.test(pesan1) && /Reload/i.test(pesan1),
+    pesan1.slice(0, 300));
+  check('skema hilang: tidak menyuruh "jalankan schema.sql" untuk kasus cache',
+    !/belum terpasang\.\s*Jalankan/i.test(pesan1), pesan1.slice(0, 300));
+  tanpaSkema.close();
+
+  // 3) FUNGSI MEMANG BELUM ADA: -> arahkan menjalankan schema.sql
+  const belumAda = await runPage('petugas.html', {
+    fetch: async () => jsonRes({
+      code: '42883', message: 'function public.event_info() does not exist'
+    }, 404)
+  });
+  await until(() => /belum terpasang|schema\.sql/i.test(belumAda.text('#db-check-list')),
+    { label: 'diagnosa fungsi hilang' });
+  check('fungsi hilang: menyuruh menjalankan schema.sql versi terbaru',
+    /schema\.sql/i.test(belumAda.text('#db-check-list')), belumAda.text('#db-check-list').slice(0, 300));
+  belumAda.close();
+
+  // 4) KUNCI API SALAH: 401 -> bukan salahkan skema
+  const kunciSalah = await runPage('petugas.html', {
+    fetch: async () => jsonRes({ message: 'Invalid API key' }, 401)
+  });
+  await until(() => /Kunci API ditolak|kunci akses/i.test(kunciSalah.text('#db-check-list')),
+    { label: 'diagnosa kunci' });
+  const pesan4 = kunciSalah.text('#db-check-list');
+  check('kunci salah: menyebut kunci API ditolak', /Kunci API ditolak/i.test(pesan4), pesan4.slice(0, 240));
+  check('kunci salah: menyebut config.js', /config\.js/i.test(pesan4), pesan4.slice(0, 240));
+  check('kunci salah: tidak menyalahkan schema.sql', !/schema\.sql/i.test(pesan4), pesan4.slice(0, 240));
+  kunciSalah.close();
 }
 
 console.log(`\n${pass} lulus, ${fails.length} gagal`);

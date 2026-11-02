@@ -127,7 +127,13 @@ console.log('== Syarat PWA (petugas)');
     ['banner pasang aplikasi', /id="install-banner"/.test(html)],
     ['tangkap beforeinstallprompt', /beforeinstallprompt/.test(html) && /beforeinstallprompt/.test(readFileSync(join(root, 'js/petugas.js'), 'utf8'))],
     ['diagnosa izin kamera', /id="cam-check-list"/.test(html) && /getUserMedia/.test(readFileSync(join(root, 'js/petugas.js'), 'utf8'))],
-    ['tombol uji kamera', /id="btn-cam-test"/.test(html)]
+    ['tombol uji kamera', /id="btn-cam-test"/.test(html)],
+    // diagnosa "schema"/database: wajib ada di layar login
+    ['daftar periksa database', /id="db-check-list"/.test(html)],
+    ['tombol tes database', /id="btn-db-test"/.test(html)],
+    ['diagnosa memanggil runDbChecks', /runDbChecks/.test(readFileSync(join(root, 'js/petugas.js'), 'utf8'))],
+    ['pesan schema cache dipisah dari schema.sql',
+      /schema cache/i.test(readFileSync(join(root, 'api.js'), 'utf8'))]
   ];
   for (const [nama, ok2] of perlu) {
     if (ok2) ok(`PWA: ${nama}`);

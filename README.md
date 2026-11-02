@@ -438,7 +438,7 @@ undian (canvas `#snowfall`, digambar oleh `js/undian.js`):
 ## 13. Cetak kartu undangan (10 × 15 cm)
 
 Kartu undangan berukuran dasar **10 × 15 cm** (100 × 150 mm). Panel admin →
-tab **Undangan & QR** → bagian *Pratinjau kartu undangan · 10 × 15 cm*.
+tab **Undangan & QR** → bagian *Kartu undangan · 10 × 15 cm → ekspor PDF*.
 
 ### Pilih susunan cetak (dropdown **Susunan cetak**)
 
@@ -454,23 +454,41 @@ tab **Undangan & QR** → bagian *Pratinjau kartu undangan · 10 × 15 cm*.
 > rapi dan tetap bisa dipotong. Bila ukuran harus tepat 10 × 15 cm, pakai
 > 2 kartu/A4 atau 4 kartu/A3.
 
-### Langkah mencetak
+### Ekspor kartu ke PDF (tanpa dialog cetak)
+
+Kartu **tidak lagi dicetak langsung dari browser**. Semua lewat satu tombol:
+
+| Tombol | Hasil |
+|---|---|
+| **⬇️ Ekspor kartu ke PDF** | PDF berisi maksimal 16 kartu pertama (sesuai dropdown **Tampilkan**) |
+| **📚 Ekspor semua peserta (PDF)** | PDF berisi seluruh peserta terdaftar |
+
+Langkahnya:
 
 1. Isi **Waktu acara** dan **Tempat acara** (diingat di perangkat ini).
-2. Pilih **Susunan cetak** dan jumlah kartu → **Tampilkan** (pratinjau 1:1 per lembar).
-3. Tekan **👁️ Pratinjau siap cetak 10×15** (atau **🖨️ Cetak kartu 10×15 cm**) —
-   terbuka tab cetak berisi panduan, lalu dialog print muncul otomatis. Bila popup
-   diblokir, berkas `.html` cetak diunduh dan bisa dibuka lalu Ctrl/Cmd + P.
-4. Di dialog printer: kertas sesuai susunan (A4/A3), skala **100 %** (bukan
-   *Fit to page*), margin **None**, header–footer **mati**.
+2. Pilih **Susunan cetak** (4 kartu/A4, 2 kartu/A4, atau 4 kartu/A3).
+3. Tekan **⬇️ Ekspor kartu ke PDF** — berkas `.pdf` **langsung terunduh**, tanpa
+   dialog print. Nama berkas: `kartu-undangan-a4-4up-16kartu-2026-12-04.pdf`.
+4. Kirim berkas itu ke percetakan, atau buka lalu cetak **apa adanya** dengan skala
+   **100 %** (bukan *Fit to page*), margin **None**, header–footer **mati**.
 
-QR asli per tamu dibuat 480 px (≈300 dpi pada kotak 40 mm). Nomor undian tetap
+Isi setiap lembar PDF sudah pasti: ukuran halaman = kertas sesuai susunan
+(A4 210 × 297 mm atau A3 297 × 420 mm), posisi kartu di tengah, garis potong putus-putus,
+dan **QR asli per tamu** (480 px ≈ 300 dpi pada kotak 44 mm). Nomor undian tetap
 **tidak dicetak**.
+
+> Pembuat PDF memakai **jsPDF** yang ikut dikemas di `vendor/jspdf.umd.min.js`
+> (tetap jalan offline; bila berkas lokal tidak ditemukan, otomatis mencoba CDN).
+> Semua gambar kartu dibuat oleh `js/cards-pdf.js` — modul terpisah yang juga dipakai
+> uji otomatis. Bila unduhan diblokir peramban HP, PDF otomatis dibuka di tab baru
+> untuk disimpan dari sana.
 
 ### Berkas contoh (data contoh, tanpa aplikasi)
 
 * `kartu-undangan-10x15.html` — `node tools/make-cards-sample.mjs` (bawaan 4 kartu/A4;
   opsi `--2-per-a4`, `--4-per-a3`)
+* `contoh-kartu-undangan.pdf` (di folder induk) — contoh hasil **ekspor PDF** dari aplikasi:
+  A4, 4 kartu, ukuran kertas & posisi kartu sudah final, siap dicetak/kirim ke percetakan.
 * `kartu-undangan-10x15-contoh.pdf` — `python3 tools/make-cards-pdf.py` (bawaan 4 kartu/A4;
   opsi `--2-per-a4`, `--4-per-a3`, `--satu-per-halaman`)
 

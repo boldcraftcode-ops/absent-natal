@@ -148,7 +148,16 @@ console.log('== Syarat PWA (petugas)');
     // keputusan panitia: nama anggota keluarga tidak dicatat lagi
     ['tanpa isian nama anggota keluarga di peserta', !/family-names|data-family-name/.test(readFileSync(join(root, 'index.html'), 'utf8'))],
     ['tanpa isian nama anggota keluarga di petugas', !/family_names/.test(readFileSync(join(root, 'js/petugas.js'), 'utf8'))],
-    ['tanpa kolom Anggota Keluarga di ekspor admin', !/'Anggota Keluarga'/.test(readFileSync(join(root, 'js/admin.js'), 'utf8'))]
+    ['tanpa kolom Anggota Keluarga di ekspor admin', !/'Anggota Keluarga'/.test(readFileSync(join(root, 'js/admin.js'), 'utf8'))],
+    // kartu undangan: hanya ekspor PDF, bukan dialog cetak
+    ['tombol ekspor PDF kartu ada', /id="btn-cards-pdf"/.test(readFileSync(join(root, 'admin.html'), 'utf8'))],
+    ['tombol ekspor semua peserta ada', /id="btn-cards-pdf-all"/.test(readFileSync(join(root, 'admin.html'), 'utf8'))],
+    ['tidak ada tombol cetak kartu langsung',
+      !/id="btn-print-cards"/.test(readFileSync(join(root, 'admin.html'), 'utf8'))
+      && !/id="btn-preview-cards"/.test(readFileSync(join(root, 'admin.html'), 'utf8'))],
+    ['modul penggambar kartu PDF ada', existsSync(join(root, 'js/cards-pdf.js'))],
+    ['pustaka jsPDF ikut dikemas', existsSync(join(root, 'vendor/jspdf.umd.min.js'))],
+    ['jsPDF di-precache service worker', readFileSync(join(root, 'sw.js'), 'utf8').includes("'./vendor/jspdf.umd.min.js'")]
   ];
   for (const [nama, ok2] of perlu) {
     if (ok2) ok(`PWA: ${nama}`);

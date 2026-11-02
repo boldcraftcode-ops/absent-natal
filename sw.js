@@ -6,7 +6,7 @@
      * Supabase  : TIDAK pernah di-cache (selalu jaringan)
    ========================================================================== */
 
-const VERSION = 'natal-v7-tanpa-nama-keluarga';
+const VERSION = 'natal-v8-pdf';
 const CACHE = `absensi-${VERSION}`;
 
 const PRECACHE = [
@@ -23,11 +23,13 @@ const PRECACHE = [
   './js/index.js',
   './js/petugas.js',
   './js/admin.js',
+  './js/cards-pdf.js',
   './js/undian.js',
   './vendor/qrcode.js',
   './vendor/html5-qrcode.min.js',
   './vendor/xlsx.full.min.js',
   './vendor/jszip.min.js',
+  './vendor/jspdf.umd.min.js',
   './manifest.webmanifest',
   './icons/icon-192.png',
   './icons/icon-512.png',

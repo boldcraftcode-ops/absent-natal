@@ -9,6 +9,7 @@ import {
   normPhone, normName, sourceLabel, online, $, $$
 } from '../util.js';
 import { qrPngDataUrl, qrPngBase64 } from '../qr.js';
+import { drawCardPdf, loadJsPdf } from './cards-pdf.js';
 
 const K = { pin: 'admin_pin', domain: 'admin_domain', tab: 'admin_tab',
   cardWhen: 'card_when', cardPlace: 'card_place', cardLayout: 'card_layout' };
@@ -564,55 +565,92 @@ function buildCards() {
   }
 }
 
-/** Buka pratinjau kartu di tab baru (ukuran 1:1, siap dikirim ke percetakan). */
-function previewCards() {
+/**
+ * Ekspor kartu undangan ke berkas PDF (A4 4 kartu, A4 2 kartu, atau A3 4 kartu).
+ * Tidak memakai dialog cetak: berkas langsung diunduh.
+ */
+async function exportCardsPdf(opts = {}) {
+  const all = Boolean(opts.all);
+  const btn = all ? document.getElementById('btn-cards-pdf-all') : document.getElementById('btn-cards-pdf');
   if (!S.data.participants.length) { toast('Belum ada peserta. Import undangan dulu.', 'warn'); return; }
-  buildCards();
-  const info = cardEventInfo();
-  const cardsHtml = document.getElementById('inv-sheet').innerHTML;
-  const css = [...document.styleSheets]
-    .map((sh) => { try { return [...sh.cssRules].map((r) => r.cssText).join('\n'); } catch { return ''; } })
-    .join('\n');
 
   const layoutKey = currentLayout();
   const layout = CARD_LAYOUTS[layoutKey];
-  const pageSize = layout.kertas === 'A3' ? 'A3' : 'A4';
-  const html = `<!doctype html><html lang="id"><head><meta charset="utf-8">
-<title>Kartu Undangan ${layout.ukuran} — ${esc(info.name)}</title>
-<style>${css}
-  @page { size: ${pageSize}; margin: 0; }
-  body { background: #fff; }
-  .cetak-info { max-width: 1200px; margin: 14px auto; padding: 10px 14px; border: 1px solid var(--kraft-300);
-    border-radius: 10px; background: var(--kraft-50); font-size: .82rem; color: var(--ink-soft); }
-  .cetak-info strong { color: var(--cocoa-800); }
-  @media print { .cetak-info { display: none; } }
-</style></head><body>
-<div class="cetak-info">
-  <strong>Susunan:</strong> <strong>${layout.perPage} kartu per lembar ${layout.kertas}</strong>,
-  ukuran kartu <strong>${layout.ukuran}</strong>.
-  <strong>Cara cetak:</strong> pilih kertas <strong>${layout.kertas}</strong>, skala <strong>100%</strong>
-  (bukan “Fit to page”), margin <strong>None</strong>, matikan header–footer.
-  ${layoutKey === 'a4-4'
-    ? 'Kartu 9,5 × 14,25 cm dipotong di garis potong; kalau butuh tepat 10 × 15 cm pilih susunan '
-      + '<em>2 kartu/A4</em> atau <em>4 kartu/A3</em>.'
-    : 'Setiap kartu tepat <strong>10 × 15 cm</strong>.'}
-</div>
-<div class="inv-sheet ${layout.kelas}">${cardsHtml}</div>
-<script>window.addEventListener('load', () => setTimeout(() => window.print(), 250));<\/script>
-</body></html>`;
+  const orang = all ? S.data.participants : S.data.participants.slice(0, 16);
 
-  const w = window.open('', '_blank');
-  if (!w) {
-    // popup diblokir: unduh sebagai berkas .html yang bisa dibuka & dicetak
-    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-    saveBlob(blob, `kartu-undangan-10x15-${new Date().toISOString().slice(0, 10)}.html`)
-      .then(() => toast('Popup diblokir — berkas cetak diunduh. Buka lalu Ctrl/Cmd + P.', 'warn', 6000))
-      .catch(() => toast('Peramban memblokir popup dan unduhan.', 'err'));
-    return;
-  }
-  w.document.open();
-  w.document.write(html);
-  w.document.close();
+  await withBusy(btn, 'Menyiapkan PDF…', async () => {
+    let jsPDF;
+    try {
+      jsPDF = await loadJsPdf();
+    } catch (e) {
+      toast(e.message || 'Pustaka PDF tidak bisa dimuat.', 'err', 6000);
+      return;
+    }
+
+    const doc = new jsPDF({ unit: 'mm', format: layout.kertas.toLowerCase(), orientation: 'portrait',
+      compress: true });
+    const pageW = doc.internal.pageSize.getWidth();
+    const pageH = doc.internal.pageSize.getHeight();
+
+    // ukuran kartu sebenarnya (mm) sesuai susunan
+    const kartuW = layoutKey === 'a4-4' ? 95 : 100;
+    const kartuH = layoutKey === 'a4-4' ? 142.5 : 150;
+    const kolom = 2;
+    const baris = layout.perPage / 2;
+    const sisaX = pageW - kolom * kartuW;
+    const sisaY = pageH - baris * kartuH;
+    const gapX = Math.max(0, Math.min(6, sisaX));
+    const gapY = Math.max(0, Math.min(6, sisaY));
+    const kiri = (pageW - (kolom * kartuW + (kolom - 1) * gapX)) / 2;
+    const atas = (pageH - (baris * kartuH + (baris - 1) * gapY)) / 2;
+
+    const info = cardEventInfo();
+    const total = orang.length;
+
+    orang.forEach((p, i) => {
+      const idx = i % layout.perPage;
+      if (i && idx === 0) doc.addPage(layout.kertas.toLowerCase(), 'portrait');
+      const c = idx % kolom;
+      const r = Math.floor(idx / kolom);
+      const x = kiri + c * (kartuW + gapX);
+      const y = atas + r * (kartuH + gapY);
+      drawCardPdf(doc, p, i + 1, total, info, x, y, kartuW, kartuH, {
+        qr: qrPngDataUrl(inviteUrl(p.token), { size: 480, margin: 1 })
+      });
+    });
+
+    // metadata berkas
+    doc.setProperties({
+      title: `Kartu Undangan ${info.name}`,
+      subject: `${total} kartu · ${layout.perPage} per lembar ${layout.kertas}`,
+      creator: 'Absensi Natal'
+    });
+
+    const nama = `kartu-undangan-${layout.kertas.toLowerCase()}-${layout.perPage}up-${total}kartu-${new Date()
+      .toISOString().slice(0, 10)}.pdf`;
+
+    const count = document.getElementById('card-count');
+    if (count) {
+      count.textContent = `PDF siap: ${total} kartu · ${Math.ceil(total / layout.perPage)} lembar `
+        + `${layout.kertas} (${layout.perPage} kartu/lembar, ${layout.ukuran})`;
+    }
+
+    try {
+      const blob = doc.output('blob');
+      await saveBlob(blob, nama);
+      toast(`PDF dibuat: ${total} kartu (${nama}).`, 'ok', 6000);
+    } catch (e) {
+      // cadangan: beberapa peramban HP membatasi unduhan blob -> buka di tab baru
+      try {
+        const url = doc.output('bloburl');
+        const w = window.open(url, '_blank');
+        if (!w) throw new Error('popup diblokir');
+        toast('PDF dibuka di tab baru — simpan dari sana.', 'warn', 6000);
+      } catch {
+        toast('Gagal mengunduh PDF. Coba di Chrome/Firefox desktop.', 'err', 6000);
+      }
+    }
+  });
 }
 
 function exportLinksXlsx(btn) {
@@ -1110,8 +1148,11 @@ function bind() {
     if (f) handleFile(f);
   });
   document.getElementById('btn-qr-zip')?.addEventListener('click', (e) => downloadQrZip(e.currentTarget));
-  document.getElementById('btn-print-cards')?.addEventListener('click', previewCards);
-  document.getElementById('btn-preview-cards')?.addEventListener('click', previewCards);
+  document.getElementById('btn-cards-pdf')?.addEventListener('click', () => exportCardsPdf());
+  document.getElementById('btn-cards-pdf-all')?.addEventListener('click', () => exportCardsPdf({ all: true }));
+  // tombol lama (bila masih ada di halaman lain) tetap berfungsi sebagai ekspor PDF
+  document.getElementById('btn-print-cards')?.addEventListener('click', () => exportCardsPdf());
+  document.getElementById('btn-preview-cards')?.addEventListener('click', () => exportCardsPdf());
   const layoutEl = document.getElementById('card-layout');
   if (layoutEl) {
     layoutEl.value = store.get(K.cardLayout, 'a4-4');
@@ -1213,3 +1254,6 @@ function main() {
 }
 
 main();
+
+/* diekspor agar ekspor PDF bisa diuji otomatis (jsdom) */
+export { exportCardsPdf };

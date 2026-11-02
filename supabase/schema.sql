@@ -59,10 +59,6 @@ create table if not exists public.participants (
   created_at    timestamptz not null default now()
 );
 
-create index if not exists participants_phone_idx     on public.participants (phone) where phone is not null;
-create index if not exists participants_name_norm_idx on public.participants (name_norm);
-create index if not exists participants_attended_idx  on public.participants (attended);
-
 -- Anggota keluarga yang ikut (maks 5 per peserta, satu baris per orang)
 create table if not exists public.family_members (
   id             uuid primary key default extensions.gen_random_uuid(),
@@ -72,9 +68,6 @@ create table if not exists public.family_members (
   created_at     timestamptz not null default now(),
   unique (participant_id, position)
 );
-
-create index if not exists family_members_participant_idx
-  on public.family_members (participant_id);
 
 create table if not exists public.prizes (
   id         uuid primary key default extensions.gen_random_uuid(),
@@ -92,12 +85,6 @@ create table if not exists public.winners (
   drawn_at       timestamptz not null default now()
 );
 
-create index if not exists winners_prize_idx on public.winners (prize_id);
-
--- Satu orang hanya boleh menang satu kali (hanya untuk status 'confirmed').
-create unique index if not exists winners_satu_juara
-  on public.winners (participant_id) where status = 'confirmed';
-
 -- ---------------------------------------------------------------------------
 -- 2. Nilai awal settings
 -- ---------------------------------------------------------------------------
@@ -108,6 +95,84 @@ insert into public.settings (key, value) values
   ('admin_pin_hash',  extensions.crypt('admin1234', extensions.gen_salt('bf', 10))),
   ('staff_pin_hash',  extensions.crypt('staff1234', extensions.gen_salt('bf', 10)))
 on conflict (key) do nothing;
+
+-- ---------------------------------------------------------------------------
+-- 2b. PELENGKAP KOLOM (untuk database yang dibuat dengan versi skema lebih lama)
+--     Skema ini aman dijalankan berulang. Bila tabel sudah ada dari versi lama,
+--     kolom yang belum ada ditambahkan di sini supaya fungsi tidak gagal dengan
+--     "column ... does not exist".
+-- ---------------------------------------------------------------------------
+alter table public.participants add column if not exists token          text;
+alter table public.participants add column if not exists name           text;
+alter table public.participants add column if not exists name_norm      text;
+alter table public.participants add column if not exists phone          text;
+alter table public.participants add column if not exists org            text;
+alter table public.participants add column if not exists family_count   integer default 0;
+alter table public.participants add column if not exists wants_meal     boolean default false;
+alter table public.participants add column if not exists wants_souvenir boolean default false;
+alter table public.participants add column if not exists invited        boolean default false;
+alter table public.participants add column if not exists lottery_no     integer;
+alter table public.participants add column if not exists attended       boolean default false;
+alter table public.participants add column if not exists attended_at    timestamptz;
+alter table public.participants add column if not exists source         text default 'manual';
+alter table public.participants add column if not exists created_at     timestamptz default now();
+
+alter table public.family_members add column if not exists participant_id uuid;
+alter table public.family_members add column if not exists name           text;
+alter table public.family_members add column if not exists position       integer default 1;
+alter table public.family_members add column if not exists created_at     timestamptz default now();
+
+alter table public.prizes add column if not exists name       text;
+alter table public.prizes add column if not exists qty        integer default 1;
+alter table public.prizes add column if not exists sort_order integer default 0;
+alter table public.prizes add column if not exists created_at timestamptz default now();
+
+alter table public.winners add column if not exists prize_id       uuid;
+alter table public.winners add column if not exists participant_id uuid;
+alter table public.winners add column if not exists status         text;
+alter table public.winners add column if not exists drawn_at       timestamptz default now();
+
+alter table public.settings add column if not exists value text;
+
+-- Kolom id & nilai bawaan: dipastikan ada walau tabelnya berasal dari versi lama.
+alter table public.participants   add column if not exists id uuid default extensions.gen_random_uuid();
+alter table public.family_members add column if not exists id uuid default extensions.gen_random_uuid();
+alter table public.prizes         add column if not exists id uuid default extensions.gen_random_uuid();
+
+alter table public.participants   alter column id set default extensions.gen_random_uuid();
+alter table public.family_members alter column id set default extensions.gen_random_uuid();
+alter table public.prizes         alter column id set default extensions.gen_random_uuid();
+
+alter table public.participants alter column family_count   set default 0;
+alter table public.participants alter column wants_meal     set default false;
+alter table public.participants alter column wants_souvenir set default false;
+alter table public.participants alter column invited        set default false;
+alter table public.participants alter column attended       set default false;
+alter table public.participants alter column source         set default 'manual';
+alter table public.participants alter column created_at     set default now();
+alter table public.participants alter column lottery_no     set default 1;
+
+alter table public.family_members alter column position   set default 1;
+alter table public.family_members alter column created_at set default now();
+
+alter table public.prizes alter column qty        set default 1;
+alter table public.prizes alter column sort_order set default 0;
+alter table public.prizes alter column created_at set default now();
+
+alter table public.winners alter column drawn_at set default now();
+
+-- ---------------------------------------------------------------------------
+-- 2c. Indeks (dibuat SETELAH kolom dilengkapi, agar aman untuk database lama)
+-- ---------------------------------------------------------------------------
+create index if not exists participants_phone_idx     on public.participants (phone) where phone is not null;
+create index if not exists participants_name_norm_idx on public.participants (name_norm);
+create index if not exists participants_attended_idx  on public.participants (attended);
+create index if not exists family_members_participant_idx on public.family_members (participant_id);
+create index if not exists winners_prize_idx on public.winners (prize_id);
+
+-- Satu orang hanya boleh menang satu kali (hanya untuk status 'confirmed').
+create unique index if not exists winners_satu_juara
+  on public.winners (participant_id) where status = 'confirmed';
 
 -- ---------------------------------------------------------------------------
 -- 3. Helper INTERNAL (dicabut dari anon/authenticated di bagian 6)
@@ -171,42 +236,25 @@ begin
   return v_out;
 end $$;
 
--- Simpan anggota keluarga (ganti seluruh daftar) + samakan family_count.
--- p_extra mempertahankan hitungan lama bila peserta hanya mengisi jumlah tanpa nama.
-create or replace function public._set_family(p_id uuid, p_names jsonb, p_extra integer default 0)
+-- Versi lama (uuid, jsonb, integer) tidak dipakai lagi: hapus bila ada.
+drop function if exists public._set_family(uuid, jsonb, integer);
+
+-- Simpan JUMLAH anggota keluarga (0-5) + samakan family_count.
+-- Nama anggota keluarga tidak lagi dicatat (keputusan panitia): cukup jumlahnya
+-- untuk menghitung kupon makan & souvenir. Angka tidak pernah turun saat data
+-- digabung, jadi isian pertama tetap dipertahankan.
+create or replace function public._set_family(p_id uuid, p_count integer)
 returns integer
 language plpgsql
 security definer
 set search_path = ''
 as $$
 declare
-  v_names    text[];
-  v_existing integer;
-  v_count    integer;
-  i          integer;
+  v_count integer;
 begin
-  -- p_names NULL  -> daftar tidak dikirim, nama yang sudah ada DIPERTAHANKAN
-  -- p_names '[]'  -> daftar dikosongkan (hapus semua anggota)
-  if p_names is not null then
-    v_names := public._norm_family_names(p_names);
-    delete from public.family_members where participant_id = p_id;
-    if array_length(v_names, 1) is not null then
-      for i in 1 .. array_length(v_names, 1) loop
-        insert into public.family_members (participant_id, name, position)
-        values (p_id, v_names[i], i);
-      end loop;
-    end if;
-  end if;
-
-  select count(*)::integer into v_existing
-    from public.family_members where participant_id = p_id;
-
-  -- hitungan = jumlah nama tercatat, tidak turun dari data sebelumnya,
-  -- dan minimal sebesar angka yang dikirim (maks 5)
   v_count := greatest(
-    coalesce(array_length(v_names, 1), 0),
-    coalesce(v_existing, 0),
-    least(greatest(coalesce(p_extra, 0), 0), 5)
+    coalesce((select family_count from public.participants where id = p_id), 0),
+    least(greatest(coalesce(p_count, 0), 0), 5)
   );
 
   update public.participants set family_count = v_count where id = p_id;
@@ -402,7 +450,7 @@ declare
   v_name  text := btrim(regexp_replace(coalesce(p_name, ''), '\s+', ' ', 'g'));
   v_phone text := public._norm_phone(p_phone);
   v_org   text := nullif(btrim(coalesce(p_org, '')), '');
-  v_fam   integer := greatest(0, coalesce(p_family, 0));
+  v_fam   integer := least(greatest(0, coalesce(p_family, 0)), 5);
   v_match uuid;
   v_p     public.participants;
   v_no    integer;
@@ -430,11 +478,8 @@ begin
      where id = v_match
     returning * into v_p;
 
-    -- anggota keluarga: daftar baru menggantikan, atau pertahankan angka tertinggi
-    perform public._set_family(
-      v_p.id,
-      nullif(p_family_names, 'null'::jsonb),
-      greatest(v_p.family_count, v_fam));
+    -- jumlah anggota keluarga: ambil angka tertinggi (tidak pernah turun)
+    perform public._set_family(v_p.id, v_fam);
     select * into v_p from public.participants where id = v_match;
 
     return jsonb_build_object(
@@ -470,7 +515,7 @@ begin
           false, v_no, true, now(), coalesce(p_source, 'form_umum'))
   returning * into v_p;
 
-  v_p.family_count := public._set_family(v_p.id, nullif(p_family_names, 'null'::jsonb), v_fam);
+  v_p.family_count := public._set_family(v_p.id, v_fam);
 
   return jsonb_build_object(
     'ok', true, 'status', 'ok', 'merged', false,
@@ -543,9 +588,6 @@ begin
     'family_count', v_p.family_count,
     'wants_meal', v_p.wants_meal,
     'wants_souvenir', v_p.wants_souvenir,
-    'family_names', (
-      select coalesce(jsonb_agg(m.name order by m.position), '[]'::jsonb)
-        from public.family_members m where m.participant_id = v_p.id),
     'invited', v_p.invited,
     'attended', v_p.attended,
     'attended_at', v_p.attended_at,
@@ -587,8 +629,8 @@ begin
 
   -- sudah hadir: jangan ubah waktu, tetapi lengkapi data keluarga/kupon bila dikirim
   if v_p.attended then
-    if p_family > 0 or p_family_names is not null or p_meal or p_souvenir then
-      perform public._set_family(v_p.id, p_family_names, coalesce(p_family, 0));
+    if p_family > 0 or p_meal or p_souvenir then
+      perform public._set_family(v_p.id, p_family);
       update public.participants
          set wants_meal = wants_meal or coalesce(p_meal, false),
              wants_souvenir = wants_souvenir or coalesce(p_souvenir, false)
@@ -600,9 +642,6 @@ begin
       'org', v_p.org, 'lottery_no', v_p.lottery_no, 'attended_at', v_p.attended_at,
       'family_count', v_p.family_count, 'wants_meal', v_p.wants_meal,
       'wants_souvenir', v_p.wants_souvenir,
-      'family_names', (
-        select coalesce(jsonb_agg(m.name order by m.position), '[]'::jsonb)
-          from public.family_members m where m.participant_id = v_p.id),
       'message', 'Undangan ini sudah tercatat hadir.');
   end if;
 
@@ -625,23 +664,17 @@ begin
       'org', v_p.org, 'lottery_no', v_p.lottery_no, 'attended_at', v_p.attended_at,
       'family_count', v_p.family_count, 'wants_meal', v_p.wants_meal,
       'wants_souvenir', v_p.wants_souvenir,
-      'family_names', (
-        select coalesce(jsonb_agg(m.name order by m.position), '[]'::jsonb)
-          from public.family_members m where m.participant_id = v_p.id),
       'message', 'Undangan ini sudah tercatat hadir.');
   end if;
 
-  -- simpan anggota keluarga (nama opsional, maksimal 5)
-  perform public._set_family(v_p.id, p_family_names, coalesce(p_family, 0));
+  -- simpan jumlah anggota keluarga (0-5)
+  perform public._set_family(v_p.id, p_family);
   select * into v_p from public.participants where id = v_p.id;
 
   return jsonb_build_object('ok', true, 'status', 'ok', 'name', v_p.name, 'org', v_p.org,
     'lottery_no', v_p.lottery_no, 'attended_at', v_p.attended_at,
     'family_count', v_p.family_count, 'wants_meal', v_p.wants_meal,
     'wants_souvenir', v_p.wants_souvenir,
-    'family_names', (
-      select coalesce(jsonb_agg(m.name order by m.position), '[]'::jsonb)
-        from public.family_members m where m.participant_id = v_p.id),
     'message', 'Kehadiran Anda berhasil dicatat.');
 end $$;
 
@@ -775,6 +808,19 @@ begin
         v_res := jsonb_build_object('id', v_item ->> 'id', 'status', 'not_found',
           'message', 'Peserta tidak ditemukan di server.');
       else
+        -- Isian dari HP petugas saat memindai QR: jumlah keluarga, kupon makan,
+        -- souvenir. Hanya menambah (tidak menghapus isian peserta sendiri).
+        if coalesce((v_item ->> 'family_count')::integer, 0) > 0 then
+          perform public._set_family(v_p.id, (v_item ->> 'family_count')::integer);
+        end if;
+        if coalesce((v_item ->> 'wants_meal')::boolean, false) then
+          update public.participants set wants_meal = true where id = v_p.id;
+        end if;
+        if coalesce((v_item ->> 'wants_souvenir')::boolean, false) then
+          update public.participants set wants_souvenir = true where id = v_p.id;
+        end if;
+        select * into v_p from public.participants where id = v_p.id;
+
         if v_p.attended then
           update public.participants
              set attended_at = least(coalesce(attended_at, v_at), v_at)
@@ -807,7 +853,7 @@ begin
                    nullif(v_item ->> 'lottery_no', '')::integer,
                    coalesce((v_item ->> 'wants_meal')::boolean, false),
                    coalesce((v_item ->> 'wants_souvenir')::boolean, false),
-                   v_item -> 'family_names');
+                   null);
         v_res := jsonb_build_object('id', v_item ->> 'id',
           'status', case when (v_reg ->> 'merged')::boolean then 'merged' else 'ok' end,
           'participant_id', v_reg ->> 'id', 'name', v_reg ->> 'name',
@@ -866,18 +912,12 @@ begin
            'id', p.id, 'token', p.token, 'name', p.name, 'org', p.org, 'phone', p.phone,
            'family_count', p.family_count,
            'wants_meal', p.wants_meal, 'wants_souvenir', p.wants_souvenir,
-           'family_names', coalesce(f.names, '[]'::jsonb),
            'invited', p.invited,
            'lottery_no', p.lottery_no, 'attended', p.attended,
            'attended_at', p.attended_at, 'source', p.source, 'created_at', p.created_at)
          order by p.lottery_no), '[]'::jsonb)
     into v_people
-    from public.participants p
-    left join lateral (
-      select jsonb_agg(m.name order by m.position) as names
-        from public.family_members m
-       where m.participant_id = p.id
-    ) f on true;
+    from public.participants p;
 
   select coalesce(jsonb_agg(jsonb_build_object(
            'id', z.id, 'name', z.name, 'qty', z.qty, 'sort_order', z.sort_order)
@@ -1099,15 +1139,13 @@ begin
     return jsonb_build_object('ok', false, 'message', 'Peserta tidak ditemukan.');
   end if;
 
-  if p_fields ? 'family_names' then
-    v_p.family_count := public._set_family(v_p.id, p_fields -> 'family_names',
-                                           coalesce((p_fields ->> 'family_count')::integer, v_p.family_count));
+  if p_fields ? 'family_count' then
+    v_p.family_count := public._set_family(v_p.id, (p_fields ->> 'family_count')::integer);
   end if;
 
   return jsonb_build_object('ok', true, 'id', v_p.id, 'name', v_p.name, 'phone', v_p.phone,
                             'org', v_p.org, 'family_count', v_p.family_count,
                             'wants_meal', v_p.wants_meal, 'wants_souvenir', v_p.wants_souvenir,
-                            'family_names', public._family_map(array[v_p.id]) -> v_p.id::text,
                             'lottery_no', v_p.lottery_no);
 end $$;
 
@@ -1172,8 +1210,7 @@ begin
           'manual')
   returning * into v_p;
 
-  v_p.family_count := public._set_family(v_p.id, nullif(p_family_names, 'null'::jsonb),
-                                         coalesce(p_family, 0));
+  v_p.family_count := public._set_family(v_p.id, p_family);
 
   return jsonb_build_object('ok', true, 'id', v_p.id, 'name', v_p.name,
                             'lottery_no', v_p.lottery_no, 'attended', v_p.attended,
@@ -1356,6 +1393,93 @@ begin
 end $$;
 
 -- ---------------------------------------------------------------------------
+-- 6b. schema_check() — periksa kelengkapan database dari aplikasi/browser
+--     Mengembalikan daftar tabel, kolom, dan fungsi yang belum ada.
+--     "ok": true berarti database sudah lengkap sesuai versi skema ini.
+-- ---------------------------------------------------------------------------
+create or replace function public.schema_check()
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+declare
+  v_tabel  text;
+  v_kolom  text;
+  v_fungsi text;
+  v_missing_tables  jsonb := '[]'::jsonb;
+  v_missing_columns jsonb := '[]'::jsonb;
+  v_missing_funcs   jsonb := '[]'::jsonb;
+  v_cek    text;
+  v_perlu  text[][];
+  i        integer;
+begin
+  -- 1. tabel wajib
+  foreach v_tabel in array array['settings', 'participants', 'family_members', 'prizes', 'winners']
+  loop
+    if to_regclass('public.' || v_tabel) is null then
+      v_missing_tables := v_missing_tables || to_jsonb(v_tabel);
+    end if;
+  end loop;
+
+  -- 2. kolom wajib: {tabel, kolom}
+  v_perlu := array[
+    ['settings','key'], ['settings','value'],
+    ['participants','id'], ['participants','token'], ['participants','name'],
+    ['participants','name_norm'], ['participants','phone'], ['participants','org'],
+    ['participants','family_count'], ['participants','wants_meal'],
+    ['participants','wants_souvenir'], ['participants','invited'],
+    ['participants','lottery_no'], ['participants','attended'],
+    ['participants','attended_at'], ['participants','source'], ['participants','created_at'],
+    ['family_members','id'], ['family_members','participant_id'],
+    ['family_members','name'], ['family_members','position'], ['family_members','created_at'],
+    ['prizes','id'], ['prizes','name'], ['prizes','qty'],
+    ['prizes','sort_order'], ['prizes','created_at'],
+    ['winners','id'], ['winners','prize_id'], ['winners','participant_id'],
+    ['winners','status'], ['winners','drawn_at']
+  ];
+  for i in 1 .. array_length(v_perlu, 1) loop
+    v_tabel := v_perlu[i][1];
+    v_kolom := v_perlu[i][2];
+    select into v_cek count(*)::text
+      from information_schema.columns
+     where table_schema = 'public' and table_name = v_tabel and column_name = v_kolom;
+    if v_cek = '0' then
+      v_missing_columns := v_missing_columns || to_jsonb(v_tabel || '.' || v_kolom);
+    end if;
+  end loop;
+
+  -- 3. fungsi wajib (yang dipanggil aplikasi)
+  foreach v_fungsi in array array[
+    'event_info', 'get_invite', 'confirm_attendance', 'walkin_register',
+    'staff_data', 'staff_claim_numbers', 'staff_sync',
+    'admin_check', 'admin_get_all', 'admin_import', 'admin_set_setting',
+    'admin_change_pin', 'admin_toggle', 'admin_update', 'admin_delete', 'admin_add',
+    'admin_prize_save', 'admin_prize_delete', 'admin_winner_delete',
+    'draw_record', 'admin_reset'
+  ]
+  loop
+    if not exists (
+      select 1 from pg_proc pr join pg_namespace n on n.oid = pr.pronamespace
+       where n.nspname = 'public' and pr.proname = v_fungsi
+    ) then
+      v_missing_funcs := v_missing_funcs || to_jsonb(v_fungsi || '()');
+    end if;
+  end loop;
+
+  return jsonb_build_object(
+    'ok', jsonb_array_length(v_missing_tables) = 0
+          and jsonb_array_length(v_missing_columns) = 0
+          and jsonb_array_length(v_missing_funcs) = 0,
+    'missing_tables', v_missing_tables,
+    'missing_columns', v_missing_columns,
+    'missing_functions', v_missing_funcs,
+    'checked_at', now()
+  );
+end $$;
+
+-- ---------------------------------------------------------------------------
 -- 7. RLS + HAK AKSES
 -- ---------------------------------------------------------------------------
 alter table public.settings       enable row level security;
@@ -1388,7 +1512,7 @@ revoke execute on function public._claim_block(integer)             from public,
 revoke execute on function public._new_token()                      from public, anon, authenticated;
 revoke execute on function public._find_match(text, text)           from public, anon, authenticated;
 revoke execute on function public._norm_family_names(jsonb)         from public, anon, authenticated;
-revoke execute on function public._set_family(uuid, jsonb, integer) from public, anon, authenticated;
+revoke execute on function public._set_family(uuid, integer)        from public, anon, authenticated;
 revoke execute on function public._family_map(uuid[])               from public, anon, authenticated;
 revoke execute on function public._register_walkin(text, text, text, integer, text, integer, boolean, boolean, jsonb)
   from public, anon, authenticated;
@@ -1401,6 +1525,7 @@ grant execute on function public.walkin_register(text, text, text, integer, bool
   to anon, authenticated;
 
 -- Fungsi PETUGAS
+grant execute on function public.schema_check()                                 to anon, authenticated;
 grant execute on function public.staff_data(text)                               to anon, authenticated;
 grant execute on function public.staff_claim_numbers(text, integer)             to anon, authenticated;
 grant execute on function public.staff_sync(text, jsonb)                        to anon, authenticated;
@@ -1424,6 +1549,9 @@ grant execute on function public.admin_reset(text, text)                        
 
 -- ---------------------------------------------------------------------------
 -- 8. Pemeriksaan cepat
+--    1) select public.event_info();
+--    2) select public.schema_check();   <-- daftar tabel/kolom/fungsi yang hilang
+--       Hasil '{"ok": true}' berarti database sudah lengkap.
 -- ---------------------------------------------------------------------------
 -- select public.event_info();
 -- select public.admin_get_all('admin1234') -> 'ok';

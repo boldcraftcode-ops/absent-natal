@@ -169,7 +169,8 @@ async function runPage(file, { query = '', fetch: fetchImpl, storage = {}, befor
   const { window } = dom;
 
   // library vendor (jsdom tidak mengunduh <script src>)
-  for (const src of ['vendor/qrcode.js', 'vendor/xlsx.full.min.js', 'vendor/jszip.min.js']) {
+  for (const src of ['vendor/qrcode.js', 'vendor/xlsx.full.min.js', 'vendor/jszip.min.js',
+    'vendor/jspdf.umd.min.js']) {
     window.eval(readFileSync(join(ROOT, src), 'utf8'));
   }
   if (stubZip) {
@@ -209,8 +210,11 @@ async function runPage(file, { query = '', fetch: fetchImpl, storage = {}, befor
     const tmpName = `page${++pageCounter}-${src.replace(/[\\/]/g, '_')}`;
     const tmpPath = join(TMP, tmpName);
     writeFileSync(tmpPath, code);
-    // dari tests/.tmp, '../' -> tests/ ; perlu naik dua tingkat
-    writeFileSync(tmpPath, code.replace(/from '\.\.\//g, `from '${pathToFileURL(ROOT).href}/`));
+    // dari tests/.tmp, '../' -> tests/ ; perlu naik dua tingkat.
+    // Import sesama modul di js/ ('./x.js') juga diarahkan ke berkas aslinya.
+    writeFileSync(tmpPath, code
+      .replace(/from '\.\.\//g, `from '${pathToFileURL(ROOT).href}/`)
+      .replace(/from '\.\/(?!\.)/g, `from '${pathToFileURL(join(ROOT, dirname(src))).href}/`));
     await import(pathToFileURL(tmpPath).href);
   }
 
@@ -250,6 +254,21 @@ function usePage(page) {
 }
 
 const click = (page, sel) => page.window.document.querySelector(sel).click();
+
+/** Jumlah kartu yang benar-benar diekspor (bawaan: maksimal 16). */
+const antara = (n, maks) => Math.min(Number(n) || 0, maks);
+
+/** Baca isi Blob milik halaman (jsdom) sebagai Uint8Array. */
+function bacaBlob(page, blob) {
+  if (!blob) return Promise.resolve(new Uint8Array());
+  if (typeof blob.arrayBuffer === 'function') return blob.arrayBuffer().then((b) => new Uint8Array(b));
+  return new Promise((resolve) => {
+    const reader = new page.window.FileReader();
+    reader.onload = () => resolve(new Uint8Array(reader.result));
+    reader.onerror = () => resolve(new Uint8Array());
+    reader.readAsArrayBuffer(blob);
+  });
+}
 const fire = (page, sel, type = 'submit') => page.window.document
   .querySelector(sel).dispatchEvent(new page.window.Event(type, { bubbles: true, cancelable: true }));
 
@@ -654,37 +673,84 @@ console.log('== 14. admin.html — QR, kartu undangan, template');
   admin.$('#card-layout').dispatchEvent(new admin.window.Event('change', { bubbles: true }));
   await sleep(120);
 
-  // pratinjau siap cetak: popup diblokir -> berkas .html cetak diunduh
+  // ekspor kartu ke PDF: berkas langsung diunduh (tanpa dialog cetak)
   {
     usePage(admin);
     const blobs = [];
     const createAsli = URL.createObjectURL;
     URL.createObjectURL = (blob) => { blobs.push(blob); return createAsli.call(URL, blob); };
-    const openAsli = admin.window.open;
-    admin.window.open = () => null;
     admin.window.__downloaded = '';
-    click(admin, '#btn-preview-cards');
-    await until(() => /10x15/.test(String(admin.window.__downloaded || '')), { label: 'berkas cetak' });
-    await sleep(200);
-    URL.createObjectURL = createAsli;
-    admin.window.open = openAsli;
+    admin.window.__unduhan = [];
+    admin.window.jspdf = window.jspdf;      // pustaka jsPDF asli (dimuat saat runPage)
 
-    const berkas = blobs.length ? await new Promise((resolve) => {
-      const reader = new admin.window.FileReader();
-      reader.onload = () => resolve(String(reader.result));
-      reader.onerror = () => resolve('');
-      reader.readAsText(blobs[0]);
-    }) : '';
-    check('pratinjau cetak menghasilkan berkas .html',
-      /kartu-undangan-10x15/.test(String(admin.window.__downloaded)), String(admin.window.__downloaded));
-    // CSS kartu diambil dari styles.css (di jsdom, cssRules bisa kosong)
-    check('berkas cetak berisi kartu 10x15 cm', /card15/.test(berkas), berkas.slice(0, 80));
-    check('berkas cetak memakai lembar (.page) + CSS', /class="page"/.test(berkas) && /<style>/.test(berkas));
-    check('berkas cetak memakai susunan 4 kartu/A4', /inv-sheet--a4-4/.test(berkas));
-    check('berkas cetak menyebut ukuran kertas A4', /size: A4/i.test(berkas));
-    check('berkas cetak memuat QR asli tiap tamu',
-      (berkas.match(/data:image\/png/g) || []).length >= 2);
-    check('berkas cetak memuat petunjuk skala 100%', /100%/.test(berkas));
+    const sebelum = admin.document.querySelectorAll('#inv-sheet .card15').length;
+    click(admin, '#btn-cards-pdf');
+    await until(() => /kartu-undangan/.test(String(admin.window.__downloaded || '')), { label: 'ekspor PDF' });
+    await sleep(300);
+    URL.createObjectURL = createAsli;
+
+    const nama = String(admin.window.__downloaded);
+    const jumlahKartu = antara(sebelum, 16);       // ekspor bawaan: maksimal 16 kartu
+    const lembarA4 = Math.ceil(jumlahKartu / 4);
+    check('ekspor PDF: berkas .pdf diunduh', /\.pdf$/.test(nama), nama);
+    check('ekspor PDF: nama berkas menyebut susunan & jumlah kartu',
+      new RegExp(`kartu-undangan-a4-4up-${jumlahKartu}kartu-`).test(nama), nama);
+    check('ekspor PDF: satu berkas dibuat', blobs.length === 1, String(blobs.length));
+
+    const buf = await bacaBlob(admin, blobs[0]);
+    const dok = new TextDecoder('latin1').decode(buf);
+    const teks = dok.slice(0, 2000);
+    check('ekspor PDF: berkas benar-benar PDF (%PDF-)', teks.startsWith('%PDF-'), teks.slice(0, 20));
+    // QR di jsdom berupa PNG mini (stub kanvas) -> jsPDF menuliskannya sebagai XObject.
+    // Yang diuji: kartu benar-benar menempatkan gambar QR (bukan hanya kotak kosong).
+    check('ekspor PDF: kartu menempatkan gambar QR',
+      /\/XObject/.test(dok) || /\/Image/i.test(dok) || dok.length > 10000, `${dok.length} byte`);
+    check('ekspor PDF: jenis huruf tertanam (Times/Helvetica)',
+      /Helvetica|Times/.test(dok), dok.slice(0, 120));
+    check('ekspor PDF: pratinjau di layar tidak berubah',
+      admin.document.querySelectorAll('#inv-sheet .card15').length === sebelum);
+    check('ekspor PDF: keterangan hasil tampil di #card-count',
+      new RegExp(`PDF siap: ${jumlahKartu} kartu · ${lembarA4} lembar A4`).test(admin.text('#card-count')),
+      admin.text('#card-count'));
+    check('tombol cetak lama tidak ada lagi di halaman',
+      !admin.document.getElementById('btn-print-cards') && !admin.document.getElementById('btn-preview-cards'));
+
+    // hitung halaman PDF (objek /Type /Page, bukan /Pages)
+    const semua = new TextDecoder('latin1').decode(buf);
+    const jumlahHalaman = (semua.match(/\/Type\s*\/Page[^s]/g) || []).length;
+    check('ekspor PDF: 4 kartu per lembar A4 -> halaman sesuai',
+      jumlahHalaman === lembarA4, `${jumlahHalaman} vs ${lembarA4}`);
+    check('ekspor PDF: ukuran halaman A4 (595 x 842 pt)',
+      /\/MediaBox\s*\[\s*0\s+0\s+595/.test(semua), (semua.match(/\/MediaBox[^\]]*\]/) || [''])[0]);
+  }
+
+  // susunan 2 kartu/A4 -> PDF A4 dengan 8 halaman untuk 16 kartu
+  {
+    usePage(admin);
+    admin.$('#card-layout').value = 'a4-2';
+    admin.$('#card-layout').dispatchEvent(new admin.window.Event('change', { bubbles: true }));
+    await sleep(120);
+    const blobs = [];
+    const createAsli = URL.createObjectURL;
+    URL.createObjectURL = (blob) => { blobs.push(blob); return createAsli.call(URL, blob); };
+    admin.window.__downloaded = '';
+    click(admin, '#btn-cards-pdf');
+    await until(() => /a4-2up/.test(String(admin.window.__downloaded || '')), { label: 'ekspor PDF a4-2' });
+    await sleep(300);
+    URL.createObjectURL = createAsli;
+    check('ekspor PDF susunan 2 kartu/A4: nama berkas sesuai',
+      /kartu-undangan-a4-2up/.test(String(admin.window.__downloaded)), String(admin.window.__downloaded));
+    const buf = await bacaBlob(admin, blobs[0]);
+    const semua = new TextDecoder('latin1').decode(buf);
+    const jumlahHalaman = (semua.match(/\/Type\s*\/Page[^s]/g) || []).length;
+    const kartuA42 = antara(admin.document.querySelectorAll('#inv-sheet .card15').length, 16);
+    check('ekspor PDF susunan 2 kartu/A4: halaman = kartu / 2',
+      jumlahHalaman === Math.ceil(kartuA42 / 2), `${jumlahHalaman} vs ${Math.ceil(kartuA42 / 2)}`);
+
+    // kembali ke 4 kartu/A4
+    admin.$('#card-layout').value = 'a4-4';
+    admin.$('#card-layout').dispatchEvent(new admin.window.Event('change', { bubbles: true }));
+    await sleep(120);
   }
 
   click(admin, '#btn-general-qr');

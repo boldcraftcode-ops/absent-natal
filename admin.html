@@ -177,17 +177,21 @@
           </label>
           <div class="row" style="gap:8px">
             <button class="btn btn--gold btn--sm" id="btn-qr-zip">🗜️ Unduh semua QR (ZIP)</button>
-            <button class="btn btn--gold btn--sm" id="btn-preview-cards">👁️ Pratinjau siap cetak 10×15</button>
-            <button class="btn btn--outline btn--sm" id="btn-print-cards">🖨️ Cetak kartu 10×15 cm</button>
+            <button class="btn btn--gold btn--sm" id="btn-cards-pdf">⬇️ Ekspor kartu ke PDF</button>
+            <button class="btn btn--outline btn--sm" id="btn-cards-pdf-all">📚 Ekspor semua peserta (PDF)</button>
             <button class="btn btn--outline btn--sm" id="btn-links-xlsx">⬇️ Excel link undangan</button>
             <button class="btn btn--outline btn--sm" id="btn-general-qr">🔳 QR umum meja registrasi</button>
           </div>
+          <p class="small" style="color:var(--ink-soft);margin:0" id="cards-pdf-note">
+            PDF diunduh langsung (tanpa dialog cetak), ukuran kertasnya sudah pas —
+            kirim ke percetakan atau cetak apa adanya dengan skala 100%.
+          </p>
           <div id="qr-preview" class="center"></div>
         </div>
 
         <div class="card card--flat stack" style="padding:14px">
           <div>
-            <h2 class="card__title">3. Pratinjau kartu undangan · 10 × 15 cm</h2>
+            <h2 class="card__title">3. Kartu undangan · 10 × 15 cm → ekspor PDF</h2>
             <p class="card__sub">
               Dasar kartu <strong>10 × 15 cm</strong> (100 × 150 mm). Untuk <strong>4 kartu per lembar A4</strong>
               kartu diperkecil 5% menjadi <strong>9,5 × 14,25 cm</strong> — sebab 2 baris × 15 cm = 30 cm

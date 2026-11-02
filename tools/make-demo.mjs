@@ -473,7 +473,7 @@ ${css}
     </div>
     <p class="small center" style="color:var(--ink-soft);margin-top:10px">
       Ukuran kartu 1:1 (100 × 150 mm). Pola kotak pada pratinjau ini hanya pengganti QR asli —
-      di panel admin QR-nya asli per tamu, dan ada tombol <strong>Pratinjau siap cetak 10×15</strong>.
+      di panel admin QR-nya asli per tamu, dan ada tombol <strong>Ekspor kartu ke PDF</strong>.
     </p>
   </section>
 

@@ -32,10 +32,23 @@ export function isConfigured() {
   return Boolean(c.SUPABASE_URL && c.SUPABASE_ANON_KEY);
 }
 
-/** Pesan error server -> Bahasa Indonesia yang mudah dipahami. */
-function friendly(status, payload) {
+/** Diagnostik dari kegagalan terakhir — dipakai panel "Periksa kamera & database". */
+export const lastDiag = {
+  at: null, fn: '', status: 0, code: '', message: '', raw: ''
+};
+
+const isMissingFunction = (raw) =>
+  /could not find the function|schema cache|function .* does not exist/i.test(raw);
+
+/**
+ * Pesan error server -> Bahasa Indonesia yang mudah dipahami.
+ * `fn` = nama fungsi RPC yang dipanggil (untuk pesan yang lebih tepat).
+ */
+function friendly(status, payload, fn) {
   const p = payload || {};
   const raw = [p.message, p.details, p.hint, p.error_description, p.error].filter(Boolean).join(' ');
+  const nama = fn ? `Fungsi ${fn}()` : 'Fungsi database';
+
   if (/pin_invalid|PIN salah/i.test(raw)) return 'PIN salah. Periksa kembali PIN Anda.';
   if (/JWT|apikey|api key|Invalid API key/i.test(raw)) {
     return 'Kunci akses Supabase tidak valid. Periksa kembali config.js.';
@@ -43,15 +56,38 @@ function friendly(status, payload) {
   if (/permission denied|not authorized|insufficient privilege/i.test(raw)) {
     return 'Akses ditolak oleh server. Hubungi panitia.';
   }
-  if (/does not exist|schema cache|Could not find the function/i.test(raw)) {
-    return 'Fungsi database belum terpasang. Jalankan supabase/schema.sql di Supabase.';
+
+  // Tabel/kolom hilang = skema memang perlu dijalankan ulang (bukan cache API).
+  if (/relation .* does not exist|column .* does not exist|table .* does not exist/i.test(raw) &&
+      !isMissingFunction(raw)) {
+    return 'Tabel/kolom database belum lengkap. Jalankan ulang supabase/schema.sql versi terbaru '
+      + 'di Supabase (SQL Editor → tempel → Run).';
   }
+
+  if (isMissingFunction(raw)) {
+    // PostgREST: fungsi ADA di Postgres tapi belum masuk skema cache API-nya.
+    if (/schema cache|PGRST202|PGRST203/i.test(raw)) {
+      return `${nama} ada di database tetapi belum dikenali API Supabase (schema cache). `
+        + 'Buka Dashboard Supabase → Project Settings → API → “Reload schema cache”, '
+        + 'tunggu ±1 menit, lalu muat ulang halaman ini.';
+    }
+    return `${nama} belum terpasang. Jalankan supabase/schema.sql versi terbaru di Supabase `
+      + '(SQL Editor → tempel → Run), lalu muat ulang halaman ini.';
+  }
+
   if (/duplicate key/i.test(raw)) return 'Data sudah ada di server (tidak dobel).';
   switch (status) {
     case 0: return 'Tidak ada koneksi ke server. Periksa sinyal internet Anda.';
     case 401:
     case 403: return 'Akses ditolak. PIN salah atau kunci akses tidak valid.';
-    case 404: return 'Alamat server tidak ditemukan. Periksa SUPABASE_URL di config.js.';
+    case 404:
+      return raw
+        ? `Alamat/fungsi di server tidak ditemukan: ${raw.slice(0, 160)}`
+        : 'Alamat server tidak ditemukan. Pastikan SUPABASE_URL di config.js berupa '
+          + 'https://<kode-proyek>.supabase.co tanpa tambahan /rest/v1.';
+    case 406:
+    case 400:
+      return raw ? `${nama}: ${raw.slice(0, 180)}` : `Permintaan ke ${nama} ditolak server.`;
     case 429: return 'Terlalu banyak permintaan. Tunggu sebentar lalu coba lagi.';
     default:
       if (status >= 500) return 'Server sedang bermasalah. Coba lagi beberapa saat.';
@@ -104,13 +140,24 @@ export async function rpc(name, params = {}, opts = {}) {
     try { data = JSON.parse(text); } catch { data = { message: text }; }
   }
 
+  // simpan jejak untuk panel diagnosa di aplikasi
+  lastDiag.at = Date.now();
+  lastDiag.fn = name;
+  lastDiag.status = res.status;
+  lastDiag.raw = String(text || '').slice(0, 500);
+
   if (!res.ok) {
-    throw new ApiError(friendly(res.status, data), {
-      code: /pin_invalid|PIN salah/i.test(text) ? 'pin_invalid' : 'server',
+    const pesan = friendly(res.status, data, name);
+    lastDiag.code = /pin_invalid|PIN salah/i.test(text) ? 'pin_invalid' : 'server';
+    lastDiag.message = pesan;
+    throw new ApiError(pesan, {
+      code: lastDiag.code,
       status: res.status,
       hint: data?.hint || ''
     });
   }
+  lastDiag.code = 'ok';
+  lastDiag.message = '';
 
   // PostgREST mengembalikan nilai skalar fungsi apa adanya (object jsonb -> object).
   return data;

@@ -292,7 +292,9 @@ Aturan penting yang sudah diterapkan:
 | Gejala | Penyebab & solusi |
 |---|---|
 | “Aplikasi belum dikonfigurasi” | `config.js` belum diisi atau gagal dimuat (cek konsol). |
-| “Fungsi database belum terpasang” | `supabase/schema.sql` belum dijalankan. |
+| **“Fungsi … ada di database tetapi belum dikenali API Supabase (schema cache)”** | Skema **sudah** jalan, hanya cache API-nya belum diperbarui. Buka **Dashboard Supabase → Project Settings → API → “Reload schema cache”**, tunggu ±1 menit, muat ulang halaman. |
+| “Fungsi … belum terpasang. Jalankan supabase/schema.sql” | Anda memakai **project Supabase yang berbeda** dari `config.js`, atau skema belum pernah dijalankan di project itu. Jalankan `supabase/schema.sql` di project yang alamatnya ada di `config.js`. |
+| “Tabel/kolom database belum lengkap” | `supabase/schema.sql` versi lama. Jalankan ulang berkas versi terbaru (aman diulang). |
 | “PIN salah” padahal benar | PIN sudah diganti; atau project berbeda. Coba PIN dari perangkat lain. |
 | Kamera tidak muncul | Halaman harus HTTPS + izin kamera. Gunakan tab **Cari**. |
 | QR mengarah ke alamat aneh | Isi **Domain untuk QR** di admin (bukan alamat pratinjau Netlify). |
@@ -300,6 +302,28 @@ Aturan penting yang sudah diterapkan:
 | Halaman peserta basi setelah update | Service Worker menyimpan versi lama. Muat ulang 2×, atau tunggu ±1 menit. |
 | Peserta “tidak ditemukan” | Token undangan salah/cetakan lama. Cari manual di admin/petugas. |
 | **“Gagal memproses permintaan: DELETE requires a WHERE clause”** saat *Reset semua* / *Reset absensi* | Ekstensi pengaman database (mis. `safeupdate`) menolak `DELETE`/`UPDATE` tanpa `WHERE`. Sudah diperbaiki: **semua** `DELETE`/`UPDATE` di fungsi memakai `WHERE` eksplisit (reset menyeluruh memakai bentuk yang selalu benar, mis. `where id is not null or true`). Bila masih muncul, `supabase/schema.sql` di project Anda masih versi lama — jalankan ulang berkas itu (aman diulang). Uji: `cd tests && node sql.test.mjs` bagian **8b**. |
+
+### 11.1 Panel “Periksa sambungan & database” (layar login petugas)
+
+Bila muncul pesan error yang menyebut **schema / fungsi database / kunci API**, buka
+`petugas.html` lalu bentangkan panel **🩺 Ada error “schema” / gagal masuk?** di bawah
+tombol Masuk (panel ini juga otomatis terbuka saat login gagal karena masalah server).
+Tekan **Tes sekarang**; hasilnya:
+
+| Baris | Arti bila ❌/⚠️ |
+|---|---|
+| Alamat proyek + bentuk alamat | `SUPABASE_URL` harus persis `https://kode-proyek.supabase.co` (tanpa `/rest/v1`, tanpa spasi) |
+| Kunci API | Kunci salah/terpotong → salin ulang anon/publishable key dari Dashboard → API Keys |
+| Server Supabase terhubung | Gagal = sinyal buruk, atau project sedang **Paused** (aktifkan di Dashboard) |
+| Fungsi `event_info()` jalan | Bila menyebut *schema cache* → tekan **Reload schema cache**; bila menyebut *does not exist* → jalankan `supabase/schema.sql` di project yang sama |
+| Fungsi `staff_data()` jalan | Hanya pada tes mendalam — sekaligus memastikan PIN petugas masih berlaku |
+| Jumlah peserta tersimpan | 0 pada login pertama itu normal (butuh internet sekali) |
+
+Tombol **Salin hasil** menyalin ringkasan (alamat, potongan kunci API, semua baris) untuk
+dikirim ke panitia/pengembang lewat WhatsApp, sehingga tidak perlu membaca konsol di HP.
+
+> Halaman peserta (`index.html`) juga menampilkan **rincian teknis** singkat di bawah pesan
+> error: nama fungsi, kode HTTP, dan waktu kejadian.
 
 ---
 

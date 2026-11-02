@@ -128,7 +128,14 @@ export const api = {
   // publik
   eventInfo,
   getInvite: (token) => rpc('get_invite', { p_token: token }),
-  confirmAttendance: (token) => rpc('confirm_attendance', { p_token: token }),
+  confirmAttendance: (token, opts = {}) => rpc('confirm_attendance', {
+    p_token: token,
+    p_family: Math.max(0, Math.min(5, Number(opts.family) || 0)),
+    p_meal: Boolean(opts.meal),
+    p_souvenir: Boolean(opts.souvenir),
+    p_family_names: Array.isArray(opts.familyNames) && opts.familyNames.length
+      ? opts.familyNames : null
+  }),
   walkinRegister: (name, phone, org, family, meal = false, souvenir = false, familyNames = []) =>
     rpc('walkin_register', {
       p_name: name,

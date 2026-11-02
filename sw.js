@@ -6,7 +6,7 @@
      * Supabase  : TIDAK pernah di-cache (selalu jaringan)
    ========================================================================== */
 
-const VERSION = 'natal-v1';
+const VERSION = 'natal-v3-snow';
 const CACHE = `absensi-${VERSION}`;
 
 const PRECACHE = [

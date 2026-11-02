@@ -90,8 +90,8 @@ for (const f of pages) {
     if (IDS.has(`${name}:${idm[1]}`)) bad(`${name}: id duplikat ${idm[1]}`);
     IDS.add(`${name}:${idm[1]}`);
   }
-  // skrip modul harus ada (kecuali halaman statis seperti demo.html)
-  if (name.includes('demo')) {
+  // skrip modul harus ada (kecuali halaman statis: demo.html & kartu cetak)
+  if (name.includes('demo') || name.includes('kartu-undangan')) {
     if (!/<style>/.test(html)) bad(`${name}: CSS tidak di-inline`);
     else ok(`${name}: halaman statis dengan CSS inline`);
   } else if (!/type="module"/.test(html)) bad(`${name}: tidak memuat modul JS`);
@@ -103,6 +103,49 @@ console.log('== JSON / manifest');
 for (const f of files.filter((x) => extname(x) === '.json' || x.endsWith('.webmanifest'))) {
   try { JSON.parse(readFileSync(f, 'utf8')); ok(f.replace(root + '/', '')); }
   catch (e) { bad(`${f.replace(root + '/', '')}: ${e.message}`); }
+}
+
+// ------------------------------------------------------------- syarat PWA
+console.log('== Syarat PWA (petugas)');
+{
+  const html = readFileSync(join(root, 'petugas.html'), 'utf8');
+  const mf = JSON.parse(readFileSync(join(root, 'manifest.webmanifest'), 'utf8'));
+
+  const perlu = [
+    ['manifest ditautkan', /rel="manifest"\s+href="manifest\.webmanifest"/.test(html)],
+    ['manifest: start_url', Boolean(mf.start_url)],
+    ['manifest: scope', Boolean(mf.scope)],
+    ['manifest: display standalone', mf.display === 'standalone'],
+    ['manifest: theme_color', /^#[0-9a-f]{6}$/i.test(mf.theme_color || '')],
+    ['manifest: background_color', /^#[0-9a-f]{6}$/i.test(mf.background_color || '')],
+    ['manifest: ikon 192 & 512', ['192x192', '512x512'].every((sz) => (mf.icons || []).some((i) => i.sizes === sz))],
+    ['manifest: ada ikon maskable', (mf.icons || []).some((i) => (i.purpose || '').includes('maskable'))],
+    ['meta apple-mobile-web-app-capable', /apple-mobile-web-app-capable/.test(html)],
+    ['apple-touch-icon', /rel="apple-touch-icon"/.test(html)],
+    ['theme-color di halaman', /<meta name="theme-color"/.test(html)],
+    ['daftar service worker', /serviceWorker\.register\('\.\/sw\.js'\)/.test(readFileSync(join(root, 'js/petugas.js'), 'utf8'))],
+    ['banner pasang aplikasi', /id="install-banner"/.test(html)],
+    ['tangkap beforeinstallprompt', /beforeinstallprompt/.test(html) && /beforeinstallprompt/.test(readFileSync(join(root, 'js/petugas.js'), 'utf8'))],
+    ['diagnosa izin kamera', /id="cam-check-list"/.test(html) && /getUserMedia/.test(readFileSync(join(root, 'js/petugas.js'), 'utf8'))],
+    ['tombol uji kamera', /id="btn-cam-test"/.test(html)]
+  ];
+  for (const [nama, ok2] of perlu) {
+    if (ok2) ok(`PWA: ${nama}`);
+    else bad(`PWA: ${nama} — tidak ditemukan`);
+  }
+
+  // setiap ikon manifest harus benar-benar ada
+  for (const ic of mf.icons || []) {
+    if (!existsSync(join(root, ic.src))) bad(`PWA: berkas ikon hilang ${ic.src}`);
+  }
+  ok('semua ikon manifest ada di folder icons/');
+
+  // service worker harus mem-precache halaman petugas & styles
+  const sw = readFileSync(join(root, 'sw.js'), 'utf8');
+  for (const f of ['./petugas.html', './styles.css', './manifest.webmanifest']) {
+    if (!sw.includes(`'${f}'`)) bad(`PWA: ${f} tidak di-precache service worker`);
+  }
+  ok('service worker mem-precache halaman & aset kunci');
 }
 
 // ----------------------------------------------- variabel CSS yang dipakai

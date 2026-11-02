@@ -120,6 +120,46 @@ check('form umum tanpa HP ditolak dengan pesan jelas', w4.ok === false && /nomor
 const w5 = await rpc('walkin_register', { p_name: 'X', p_phone: '0819000005', p_org: '', p_family: 0 });
 check('nama terlalu pendek ditolak', w5.ok === false, JSON.stringify(w5));
 
+
+// ------------------------------- 3c. konfirmasi undangan + keluarga & kupon
+results.push('== 3c. Konfirmasi undangan membawa keluarga, kupon & souvenir');
+{
+  // pakai peserta yang belum hadir agar bagian 4/5 (uji saat absensi ditutup) tetap sah
+  const sitiU = (await q(`select * from participants where name_norm = 'siti aminah' and attended = false`))[0]
+    || (await q(`select * from participants where name_norm = 'andreas tobing'`))[0];
+  const maria = (await q(`select * from participants where name_norm = 'maria sinaga'`))[0];
+  const a = await rpc('confirm_attendance', {
+    p_token: sitiU.token, p_family: 2, p_meal: true, p_souvenir: false,
+    p_family_names: JSON.stringify(['Teman Satu', 'Teman Dua'])
+  });
+  check('konfirmasi undangan berhasil', a.ok === true && a.status === 'ok', JSON.stringify(a));
+  check('balasan memuat jumlah keluarga', a.family_count === 2, String(a.family_count));
+  check('balasan memuat kupon makan & souvenir',
+    a.wants_meal === true && a.wants_souvenir === false);
+  check('balasan memuat nama anggota keluarga',
+    Array.isArray(a.family_names) && a.family_names.join(',') === 'Teman Satu,Teman Dua',
+    JSON.stringify(a.family_names));
+  check('nama keluarga benar-benar tersimpan',
+    (await q('select count(*)::int c from family_members where participant_id=$1', [sitiU.id]))[0].c === 2);
+
+  // scan ulang (sudah hadir) tidak mengubah waktu, tetapi melengkapi kupon
+  const before = (await q('select attended_at from participants where id=$1', [sitiU.id]))[0].attended_at;
+  const b = await rpc('confirm_attendance', { p_token: sitiU.token, p_souvenir: true });
+  check('scan ulang: status already', b.ok === true && b.status === 'already');
+  check('scan ulang: waktu hadir tidak berubah',
+    String((await q('select attended_at from participants where id=$1', [sitiU.id]))[0].attended_at) === String(before));
+  check('scan ulang: souvenir bisa dilengkapi tanpa membatalkan kupon makan',
+    b.wants_souvenir === true && b.wants_meal === true);
+  check('scan ulang: nama keluarga tidak terhapus', b.family_count === 2, String(b.family_count));
+
+  // undangan lain: tanpa keluarga & tanpa kupon
+  const c = await rpc('confirm_attendance', { p_token: maria.token });
+  check('undangan tanpa pilihan tetap tercatat hadir',
+    c.ok === true && (c.status === 'ok' || c.status === 'already'), JSON.stringify(c));
+  check('tanpa centang -> kupon false', c.wants_meal === false && c.wants_souvenir === false);
+  check('tanpa keluarga -> family_count 0', c.family_count === 0, String(c.family_count));
+}
+
 // -------------------------------- 3b. anggota keluarga & kupon/souvenir
 results.push('== 3b. Anggota keluarga (maks 5) & kupon makan/souvenir');
 {
@@ -370,5 +410,74 @@ check('anon tidak bisa insert ke tabel', typeof insertAnon === 'string' || inser
 // ------------------------------------------------------------------ ringkasan
 console.log(results.join('\n'));
 console.log(`\n${pass} lulus, ${failures.length} gagal`);
-if (failures.length) { console.log('\nGagal:'); failures.forEach((f) => console.log(' - ' + f)); process.exit(1); }
+// --------------------------- 8b. pengaman "DELETE requires a WHERE clause"
+results.push('== 8b. Kompatibel dengan ekstensi pengaman (DELETE/UPDATE wajib WHERE)');
+{
+  // 1) audit statis: tidak boleh ada DELETE/UPDATE tanpa WHERE di fungsi mana pun
+  const fungsi = await q(`
+    select p.proname, pg_get_functiondef(p.oid) as def
+      from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public'`);
+  const tanpaWhere = [];
+  for (const fn of fungsi) {
+    const def = String(fn.def);
+    const body = def.slice(def.indexOf('AS $'))
+      .replace(/--[^\n]*/g, '')
+      // 'on conflict ... do update set ...' sudah terikat ke WHERE conflict-nya
+      .replace(/on\s+conflict\s*\([^)]*\)\s*do\s+update[^;]*/gi, '');
+    for (const m of body.matchAll(/\b(delete\s+from|update)\s+[^;]+/gi)) {
+      const stmt = m[0].replace(/\s+/g, ' ').trim();
+      if (!/\bwhere\b/i.test(stmt)) tanpaWhere.push(`${fn.proname}: ${stmt.slice(0, 70)}`);
+    }
+  }
+  check('semua DELETE/UPDATE di fungsi memakai WHERE', tanpaWhere.length === 0, tanpaWhere.join(' | '));
+
+  // 2) reset semua (dulu gagal: "DELETE requires a WHERE clause")
+  const resetAll = await rpc('admin_reset', { p_pin: 'admin1234', p_scope: 'all' });
+  check('reset semua berhasil', resetAll.ok === true, JSON.stringify(resetAll));
+  check('peserta kosong setelah reset semua',
+    (await q('select count(*)::int c from participants'))[0].c === 0);
+  check('anggota keluarga ikut terhapus',
+    (await q('select count(*)::int c from family_members'))[0].c === 0);
+  check('hadiah kosong setelah reset semua',
+    (await q('select count(*)::int c from prizes'))[0].c === 0);
+  check('penghitung walk-in kembali ke 501',
+    (await q("select value from settings where key='walkin_next'"))[0].value === '501');
+  check('pengaturan acara tetap ada',
+    (await q("select count(*)::int c from settings where key='event_name'"))[0].c === 1);
+
+  // 3) sistem tetap jalan setelah reset total
+  const imp2 = await rpc('admin_import', {
+    p_pin: 'admin1234',
+    p_rows: JSON.stringify([{ name: 'Setelah Reset', phone: '081200001111', org: 'Uji' }])
+  });
+  check('import berjalan lagi setelah reset total', imp2.inserted === 1, JSON.stringify(imp2));
+  const w = await rpc('walkin_register', { p_name: 'Walkin Setelah Reset', p_phone: '081200002222', p_org: '', p_family: 1 });
+  check('nomor walk-in mulai dari 501 lagi', w.lottery_no === 501, String(w.lottery_no));
+
+  // 4) reset absensi saja: undangan tetap, kehadiran & walk-in dibersihkan
+  const tok = (await q('select token from participants where invited limit 1'))[0].token;
+  await rpc('confirm_attendance', { p_token: tok, p_meal: true });
+  const resetAbs = await rpc('admin_reset', { p_pin: 'admin1234', p_scope: 'attendance' });
+  check('reset absensi berhasil', resetAbs.ok === true, JSON.stringify(resetAbs));
+  check('undangan tetap ada setelah reset absensi',
+    (await q('select count(*)::int c from participants where invited'))[0].c === 1);
+  check('walk-in terhapus pada reset absensi',
+    (await q('select count(*)::int c from participants where invited = false'))[0].c === 0);
+  check('semua kehadiran bersih', (await q('select count(*)::int c from participants where attended'))[0].c === 0);
+  check('kupon ikut direset', (await q('select count(*)::int c from participants where wants_meal'))[0].c === 0);
+
+  const resetWin = await rpc('admin_reset', { p_pin: 'admin1234', p_scope: 'winners' });
+  check('reset pemenang berhasil', resetWin.ok === true, JSON.stringify(resetWin));
+}
+
+
+// ------------------------------------------------------------------ ringkasan
+console.log(results.join('\n'));
+console.log(`\n${pass} lulus, ${failures.length} gagal`);
+if (failures.length) {
+  console.log('\nGagal:');
+  failures.forEach((f) => console.log(' - ' + f));
+  process.exit(1);
+}
 process.exit(0);

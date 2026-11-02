@@ -56,6 +56,8 @@ function renderInvite(info) {
   document.getElementById('invite-org2').textContent = info.org || '—';
   const closed = !info.attendance_open;
   document.getElementById('invite-closed').classList.toggle('hidden', !closed);
+  // saat absensi ditutup, pilihan keluarga/kupon tidak ditampilkan
+  document.getElementById('invite-extras')?.classList.toggle('hidden', closed);
   const btn = document.getElementById('btn-confirm');
   btn.disabled = closed;
   btn.textContent = closed ? 'Absensi Ditutup' : 'Konfirmasi Hadir';
@@ -141,10 +143,12 @@ function renderOffline() {
 }
 
 /* --------------------------------- anggota keluarga & kupon/souvenir */
-/** Buat kolom nama sesuai jumlah anggota keluarga yang dipilih (maks 5). */
-function renderFamilyInputs(count) {
-  const wrap = document.getElementById('family-names-wrap');
-  const box = document.getElementById('family-names');
+/** Buat kolom nama sesuai jumlah anggota keluarga yang dipilih (maks 5).
+ *  `boxId` menunjuk kontainer milik form yang sedang dipakai. */
+function renderFamilyInputs(count, boxId = 'family-names') {
+  // kontainer contoh: '#family-names' -> '#family-names-wrap'
+  const wrap = document.getElementById(`${boxId.replace(/^#/, '')}-wrap`);
+  const box = document.querySelector(boxId.startsWith('#') ? boxId : `#${boxId}`);
   if (!wrap || !box) return;
 
   const n = Math.max(0, Math.min(5, Number(count) || 0));
@@ -163,10 +167,23 @@ function renderFamilyInputs(count) {
     </label>`).join('');
 }
 
-function readFamilyNames() {
-  return [...document.querySelectorAll('#family-names [data-family-name]')]
+function readFamilyNames(boxId = 'family-names') {
+  const root = document.querySelector(boxId.startsWith('#') ? boxId : `#${boxId}`);
+  if (!root) return [];
+  return [...root.querySelectorAll('[data-family-name]')]
     .map((i) => i.value.trim())
     .filter((v) => v.length >= 2);
+}
+
+/** Baca pilihan keluarga + kupon + souvenir dari satu form. */
+function readExtras(prefix, boxId = 'family-names') {
+  const val = (id) => document.getElementById(id);
+  return {
+    family: Math.min(5, Number(val(`${prefix}family`)?.value || 0)),
+    meal: Boolean(val(`${prefix}meal`)?.checked),
+    souvenir: Boolean(val(`${prefix}souvenir`)?.checked),
+    familyNames: readFamilyNames(boxId)
+  };
 }
 
 /* ------------------------------------------------------------------ alur */
@@ -219,7 +236,8 @@ async function confirmAttendance() {
   btn.disabled = true;
   btn.textContent = 'Memproses…';
   try {
-    const res = await api.confirmAttendance(S.token);
+    const extras = readExtras('i-', 'i-family-names');
+    const res = await api.confirmAttendance(S.token, extras);
     setNet(true);
 
     if (res?.status === 'already') {
@@ -229,6 +247,7 @@ async function confirmAttendance() {
     if (res?.status === 'closed') {
       S.open = false;
       document.getElementById('invite-closed').classList.remove('hidden');
+      document.getElementById('invite-extras')?.classList.add('hidden');
       toast('Absensi sedang ditutup.', 'warn');
       btn.textContent = 'Absensi Ditutup';
       return;
@@ -243,7 +262,10 @@ async function confirmAttendance() {
       name: res.name,
       org: res.org,
       lottery_no: res.lottery_no,
-      preamble: `Selamat datang, ${res.name}! ✅`
+      preamble: `Selamat datang, ${res.name}! ✅`,
+      family: res.family_count || extras.family,
+      meal: Boolean(res.wants_meal ?? extras.meal),
+      souvenir: Boolean(res.wants_souvenir ?? extras.souvenir)
     });
     store.set('last_attendance', { name: res.name, lottery_no: res.lottery_no, at: res.attended_at });
   } catch (err) {
@@ -269,10 +291,7 @@ async function submitWalkin(ev) {
   const phoneRaw = document.getElementById('f-phone').value.trim();
   const phone = normPhone(phoneRaw);
   const org = document.getElementById('f-org').value.trim();
-  const family = Math.min(5, Number(document.getElementById('f-family').value || 0));
-  const familyNames = readFamilyNames();
-  const meal = document.getElementById('f-meal').checked;
-  const souvenir = document.getElementById('f-souvenir').checked;
+  const { family, meal, souvenir, familyNames } = readExtras('f-', 'family-names');
 
   if (name.length < 2) {
     toast('Nama lengkap wajib diisi (minimal 2 huruf).', 'err');
@@ -343,7 +362,10 @@ async function submitWalkin(ev) {
 /* ------------------------------------------------------------------ event */
 function bind() {
   document.getElementById('btn-confirm')?.addEventListener('click', confirmAttendance);
-  document.getElementById('f-family')?.addEventListener('change', (e) => renderFamilyInputs(e.target.value));
+  document.getElementById('f-family')?.addEventListener('change',
+    (e) => renderFamilyInputs(e.target.value, 'family-names'));
+  document.getElementById('i-family')?.addEventListener('change',
+    (e) => renderFamilyInputs(e.target.value, 'i-family-names'));
   document.getElementById('walkin-form')?.addEventListener('submit', submitWalkin);
   document.getElementById('btn-retry')?.addEventListener('click', () => boot());
   document.getElementById('btn-retry2')?.addEventListener('click', () => boot());

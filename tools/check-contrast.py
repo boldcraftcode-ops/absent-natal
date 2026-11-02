@@ -14,6 +14,11 @@ def ratio(a,b):
     return (hi+0.05)/(lo+0.05)
 
 pairs = [
+ ('banner pasang: judul / krem', '#352016', '#FFF6E6', 4.5),
+ ('banner pasang: sub / krem',   '#7A6650', '#F6EBD8', 4.5),
+ ('ikon banner / karamel',       '#3B2414', '#D9A96B', 4.5),
+ ('cek izin OK / kertas',        '#3F4D2A', '#F5EBD9', 4.5),
+ ('cek izin gagal / kertas',     '#6E2622', '#F5EBD9', 4.5),
  ('teks utama / kertas',        '#352016', '#F5EBD9', 4.5),
  ('teks sekunder / kertas',     '#7A6650', '#F5EBD9', 4.5),
  ('tombol outline / kertas',    '#553D29', '#F5EBD9', 4.5),

@@ -254,7 +254,7 @@ set search_path = ''
 as $$
 begin
   insert into public.settings (key, value) values (p_key, p_value)
-  on conflict (key) do update set value = excluded.value;
+  on conflict (key) do update set value = excluded.value where settings.key = excluded.key;
 end $$;
 
 -- Cek PIN. PIN salah -> tunggu ~0,6 detik lalu error (memperlambat brute force).
@@ -541,6 +541,11 @@ begin
     'name', v_p.name,
     'org', v_p.org,
     'family_count', v_p.family_count,
+    'wants_meal', v_p.wants_meal,
+    'wants_souvenir', v_p.wants_souvenir,
+    'family_names', (
+      select coalesce(jsonb_agg(m.name order by m.position), '[]'::jsonb)
+        from public.family_members m where m.participant_id = v_p.id),
     'invited', v_p.invited,
     'attended', v_p.attended,
     'attended_at', v_p.attended_at,
@@ -550,7 +555,13 @@ begin
   );
 end $$;
 
-create or replace function public.confirm_attendance(p_token text)
+create or replace function public.confirm_attendance(
+  p_token        text,
+  p_family       integer default 0,
+  p_meal         boolean default false,
+  p_souvenir     boolean default false,
+  p_family_names jsonb   default null
+)
 returns jsonb
 language plpgsql
 security definer
@@ -560,6 +571,7 @@ declare
   v_p     public.participants;
   v_open  boolean := public._attendance_open();
   v_token text := lower(btrim(coalesce(p_token, '')));
+
 begin
   if length(v_token) < 4 then
     return jsonb_build_object('ok', false, 'status', 'not_found',
@@ -573,9 +585,24 @@ begin
                               'message', 'Undangan tidak ditemukan.');
   end if;
 
+  -- sudah hadir: jangan ubah waktu, tetapi lengkapi data keluarga/kupon bila dikirim
   if v_p.attended then
+    if p_family > 0 or p_family_names is not null or p_meal or p_souvenir then
+      perform public._set_family(v_p.id, p_family_names, coalesce(p_family, 0));
+      update public.participants
+         set wants_meal = wants_meal or coalesce(p_meal, false),
+             wants_souvenir = wants_souvenir or coalesce(p_souvenir, false)
+       where id = v_p.id
+      returning * into v_p;
+    end if;
+
     return jsonb_build_object('ok', true, 'status', 'already', 'name', v_p.name,
       'org', v_p.org, 'lottery_no', v_p.lottery_no, 'attended_at', v_p.attended_at,
+      'family_count', v_p.family_count, 'wants_meal', v_p.wants_meal,
+      'wants_souvenir', v_p.wants_souvenir,
+      'family_names', (
+        select coalesce(jsonb_agg(m.name order by m.position), '[]'::jsonb)
+          from public.family_members m where m.participant_id = v_p.id),
       'message', 'Undangan ini sudah tercatat hadir.');
   end if;
 
@@ -586,7 +613,9 @@ begin
   end if;
 
   update public.participants
-     set attended = true, attended_at = now(), source = 'scan_sendiri'
+     set attended = true, attended_at = now(), source = 'scan_sendiri',
+         wants_meal = wants_meal or coalesce(p_meal, false),
+         wants_souvenir = wants_souvenir or coalesce(p_souvenir, false)
    where id = v_p.id and attended = false
   returning * into v_p;
 
@@ -594,11 +623,25 @@ begin
     select * into v_p from public.participants where token = v_token;
     return jsonb_build_object('ok', true, 'status', 'already', 'name', v_p.name,
       'org', v_p.org, 'lottery_no', v_p.lottery_no, 'attended_at', v_p.attended_at,
+      'family_count', v_p.family_count, 'wants_meal', v_p.wants_meal,
+      'wants_souvenir', v_p.wants_souvenir,
+      'family_names', (
+        select coalesce(jsonb_agg(m.name order by m.position), '[]'::jsonb)
+          from public.family_members m where m.participant_id = v_p.id),
       'message', 'Undangan ini sudah tercatat hadir.');
   end if;
 
+  -- simpan anggota keluarga (nama opsional, maksimal 5)
+  perform public._set_family(v_p.id, p_family_names, coalesce(p_family, 0));
+  select * into v_p from public.participants where id = v_p.id;
+
   return jsonb_build_object('ok', true, 'status', 'ok', 'name', v_p.name, 'org', v_p.org,
     'lottery_no', v_p.lottery_no, 'attended_at', v_p.attended_at,
+    'family_count', v_p.family_count, 'wants_meal', v_p.wants_meal,
+    'wants_souvenir', v_p.wants_souvenir,
+    'family_names', (
+      select coalesce(jsonb_agg(m.name order by m.position), '[]'::jsonb)
+        from public.family_members m where m.participant_id = v_p.id),
     'message', 'Kehadiran Anda berhasil dicatat.');
 end $$;
 
@@ -1257,6 +1300,8 @@ language plpgsql
 security definer
 set search_path = ''
 as $$
+declare
+  v_has boolean;   -- tabel tujuan ada?
 begin
   perform public._check_pin(p_pin, 'admin');
 
@@ -1264,21 +1309,46 @@ begin
     return jsonb_build_object('ok', false, 'message', 'Jenis reset tidak dikenal.');
   end if;
 
-  if p_scope in ('winners', 'attendance', 'all') then
-    delete from public.winners;
+  -- CATATAN: setiap DELETE/UPDATE di sini WAJIB memakai WHERE eksplisit.
+  -- Ekstensi pengaman di Supabase ("DELETE requires a WHERE clause") menolak
+  -- perintah tanpa WHERE. Karena reset menyasar seluruh baris, dipakai kondisi
+  -- yang selalu benar, mis. "where id is not null or true".
+
+  -- 1. pemenang undian
+  select to_regclass('public.winners') is not null into v_has;
+  if p_scope in ('winners', 'attendance', 'all') and v_has then
+    delete from public.winners where status is not null or true;
   end if;
 
+  -- 2. absensi: peserta tanpa undangan dibuang, undangan tetap tetapi hadir direset
   if p_scope in ('attendance', 'all') then
     delete from public.participants where invited = false;
+
     update public.participants
-       set attended = false, attended_at = null,
-           source = case when invited then 'scan_sendiri' else 'manual' end;
+       set attended = false,
+           attended_at = null,
+           wants_meal = false,
+           wants_souvenir = false,
+           source = case when invited then 'scan_sendiri' else 'manual' end
+     where attended = true;   -- WHERE eksplisit: aman untuk ekstensi pengaman
+
     perform public._set_setting('walkin_next', '501');
   end if;
 
+  -- 3. reset total: peserta (undangan + keluarga ikut terhapus via cascade) & hadiah
   if p_scope = 'all' then
-    delete from public.participants;
-    delete from public.prizes;
+    delete from public.participants where id is not null or true;
+
+    select to_regclass('public.prizes') is not null into v_has;
+    if v_has then
+      delete from public.prizes where id is not null or true;
+    end if;
+
+    select to_regclass('public.family_members') is not null into v_has;
+    if v_has then
+      delete from public.family_members where participant_id is not null or true;
+    end if;
+
     perform public._set_setting('walkin_next', '501');
   end if;
 
@@ -1326,7 +1396,7 @@ revoke execute on function public._register_walkin(text, text, text, integer, te
 -- Fungsi PUBLIK
 grant execute on function public.event_info()                                   to anon, authenticated;
 grant execute on function public.get_invite(text)                               to anon, authenticated;
-grant execute on function public.confirm_attendance(text)                       to anon, authenticated;
+grant execute on function public.confirm_attendance(text, integer, boolean, boolean, jsonb)                       to anon, authenticated;
 grant execute on function public.walkin_register(text, text, text, integer, boolean, boolean, jsonb)
   to anon, authenticated;
 

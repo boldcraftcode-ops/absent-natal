@@ -177,7 +177,8 @@
           </label>
           <div class="row" style="gap:8px">
             <button class="btn btn--gold btn--sm" id="btn-qr-zip">🗜️ Unduh semua QR (ZIP)</button>
-            <button class="btn btn--outline btn--sm" id="btn-print-cards">🖨️ Cetak kartu undangan</button>
+            <button class="btn btn--gold btn--sm" id="btn-preview-cards">👁️ Pratinjau siap cetak 10×15</button>
+            <button class="btn btn--outline btn--sm" id="btn-print-cards">🖨️ Cetak kartu 10×15 cm</button>
             <button class="btn btn--outline btn--sm" id="btn-links-xlsx">⬇️ Excel link undangan</button>
             <button class="btn btn--outline btn--sm" id="btn-general-qr">🔳 QR umum meja registrasi</button>
           </div>
@@ -186,20 +187,56 @@
 
         <div class="card card--flat stack" style="padding:14px">
           <div>
-            <h2 class="card__title">3. Pratinjau kartu undangan</h2>
-            <p class="card__sub">Tata letak A4, ±12 kartu per halaman. Nomor undian tidak dicetak agar tidak bisa ditebak sebelum hadir.</p>
+            <h2 class="card__title">3. Pratinjau kartu undangan · 10 × 15 cm</h2>
+            <p class="card__sub">
+              Dasar kartu <strong>10 × 15 cm</strong> (100 × 150 mm). Untuk <strong>4 kartu per lembar A4</strong>
+              kartu diperkecil 5% menjadi <strong>9,5 × 14,25 cm</strong> — sebab 2 baris × 15 cm = 30 cm
+              lebih tinggi dari A4 (29,7 cm). Ukuran asli 10 × 15 cm tersedia lewat 2 kartu/A4 atau
+              4 kartu/A3. Nomor undian tidak dicetak agar tidak bisa ditebak sebelum hadir.
+            </p>
+            <div class="row" style="gap:8px;flex-wrap:wrap">
+              <span class="badge badge--plain">📐 dasar 100 × 150 mm</span>
+              <span class="badge badge--plain" id="card-size-note">A4 = 4 kartu (9,5 × 14,25 cm)</span>
+              <span class="badge badge--plain">QR asli per tamu</span>
+              <span class="badge badge--plain">Skala cetak 100%</span>
+            </div>
           </div>
           <div class="row" style="gap:8px">
             <label class="small row" style="gap:6px">Tampilkan
               <select class="select" id="card-limit" style="min-height:36px;padding:4px 8px;width:auto">
-                <option value="12">12 kartu (1 halaman)</option>
-                <option value="36">36 kartu (3 halaman)</option>
+                <option value="16">16 kartu (4 lembar A4)</option>
+                <option value="8">8 kartu (2 lembar A4)</option>
                 <option value="all">semua peserta</option>
               </select>
             </label>
             <button class="btn btn--outline btn--sm" id="btn-build-cards">Tampilkan</button>
+            <span class="small" id="card-count" style="color:var(--ink-soft)"></span>
           </div>
-          <div class="scroll-y" style="max-height:70vh">
+          <label class="field" style="margin:0;max-width:340px">
+            <span class="label">Susunan cetak</span>
+            <select class="select" id="card-layout">
+              <option value="a4-4">4 kartu per lembar A4 — kartu 9,5 × 14,25 cm (hemat kertas)</option>
+              <option value="a4-2">2 kartu per lembar A4 — kartu tepat 10 × 15 cm</option>
+              <option value="a3-4">4 kartu per lembar A3 — kartu tepat 10 × 15 cm</option>
+            </select>
+            <span class="hint" id="card-layout-hint">—</span>
+          </label>
+
+          <!-- info acara yang dicetak di kartu -->
+          <div class="grid-2" style="gap:10px">
+            <label class="field" style="margin:0">
+              <span class="label">Waktu acara (baris 1 kartu)</span>
+              <input class="input" id="card-when" maxlength="80"
+                     placeholder="Kamis, 24 Desember 2026 · 18.00 WIB">
+            </label>
+            <label class="field" style="margin:0">
+              <span class="label">Tempat acara (baris 2 kartu)</span>
+              <input class="input" id="card-place" maxlength="80"
+                     placeholder="Gedung Elim, Jl. Gatot Subroto No. 12">
+            </label>
+          </div>
+
+          <div class="scroll-y" style="max-height:78vh">
             <div class="inv-sheet" id="inv-sheet"></div>
           </div>
         </div>

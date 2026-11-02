@@ -76,6 +76,50 @@
           </div>
         </div>
 
+        <!-- keluarga & konsumsi (berlaku juga untuk tamu undangan) -->
+        <div id="invite-extras">
+          <label class="field">
+            <span class="label">Jumlah anggota keluarga yang ikut</span>
+            <select class="select" name="family" id="i-family">
+              <option value="0">Tidak membawa keluarga</option>
+              <option value="1">1 orang</option>
+              <option value="2">2 orang</option>
+              <option value="3">3 orang</option>
+              <option value="4">4 orang</option>
+              <option value="5">5 orang (maksimal)</option>
+            </select>
+            <span class="hint">Cukup pilih jumlahnya. Isi nama bila ingin dicatat (opsional).</span>
+          </label>
+
+          <div id="i-family-names-wrap" class="hidden" style="margin-bottom:14px">
+            <span class="label" style="font-size:.82rem;font-weight:700;display:block;margin-bottom:6px">
+              Nama anggota keluarga (opsional)
+            </span>
+            <div id="i-family-names" class="stack" style="gap:8px"></div>
+            <span class="hint">Boleh dikosongkan — jumlahnya tetap tercatat untuk kebutuhan konsumsi.</span>
+          </div>
+
+          <fieldset class="check-card">
+            <legend class="check-card__legend">Ambil di meja registrasi</legend>
+            <label class="check-row">
+              <input type="checkbox" id="i-meal" name="meal">
+              <span class="check-row__box" aria-hidden="true">🍱</span>
+              <span class="check-row__text">
+                <strong>Kupon Makan</strong>
+                <span>Termasuk anggota keluarga yang ikut</span>
+              </span>
+            </label>
+            <label class="check-row">
+              <input type="checkbox" id="i-souvenir" name="souvenir">
+              <span class="check-row__box" aria-hidden="true">🎁</span>
+              <span class="check-row__text">
+                <strong>Souvenir</strong>
+                <span>Satu souvenir untuk setiap peserta yang hadir</span>
+              </span>
+            </label>
+          </fieldset>
+        </div>
+
         <div id="invite-closed" class="notice notice--warn hidden">
           <span class="notice__icon" aria-hidden="true">🔒</span>
           <div><strong>Absensi sedang ditutup.</strong> Silakan hubungi petugas registrasi di meja depan.</div>

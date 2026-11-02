@@ -142,11 +142,19 @@ async function runPage(file, { query = '', fetch: fetchImpl, storage = {}, befor
       w.navigator.vibrate = () => true;
       // jsdom tidak punya mesin kanvas: tiru getContext -> data URL (cukup untuk uji)
       w.HTMLCanvasElement.prototype.getContext = function () {
-        const self = this;
+        // penghitung dipakai uji salju untuk memastikan ada gambar yang dilukis
+        w.__canvasCalls = w.__canvasCalls || { arc: 0, fill: 0, clear: 0, setTransform: 0 };
+        const calls = w.__canvasCalls;
         return {
-          fillStyle: '', fillRect() {}, drawImage() {}, clearRect() {},
+          fillStyle: '', strokeStyle: '', lineWidth: 1,
+          fillRect() {}, drawImage() {}, strokeRect() {},
+          clearRect() { calls.clear++; },
+          setTransform() { calls.setTransform++; },
           getImageData: () => ({ data: new Uint8ClampedArray(4) }),
-          putImageData() {}, beginPath() {}, moveTo() {}, lineTo() {}, stroke() {}
+          putImageData() {}, moveTo() {}, lineTo() {}, stroke() {},
+          beginPath() {}, closePath() {},
+          arc() { calls.arc++; },
+          fill() { calls.fill++; }
         };
       };
       w.HTMLCanvasElement.prototype.toDataURL = function () {
@@ -228,7 +236,8 @@ function setFetchForAll(fn) {
 const OPEN_WINDOWS = [];
 /** Modul ES memakai `document` global: arahkan ke halaman yang sedang diuji. */
 function usePage(page) {
-  for (const name of ['document', 'window', 'localStorage', 'sessionStorage', 'location', 'navigator']) {
+  for (const name of ['document', 'window', 'localStorage', 'sessionStorage', 'location', 'navigator',
+    'prompt', 'confirm', 'alert']) {
     try {
       Object.defineProperty(globalThis, name, {
         value: page.window[name] ?? page.window, configurable: true, writable: true
@@ -551,15 +560,94 @@ console.log('== 13. admin.html — import Excel (header sinonim, tanpa dobel)');
 console.log('== 14. admin.html — QR, kartu undangan, template');
 {
   click(admin, '#tab-undangan');
-  await until(() => admin.document.querySelectorAll('#inv-sheet .inv-card').length > 0, { label: 'kartu' });
-  const cards = admin.document.querySelectorAll('#inv-sheet .inv-card');
+  await until(() => admin.document.querySelectorAll('#inv-sheet .card15').length > 0, { label: 'kartu' });
+  const cards = admin.document.querySelectorAll('#inv-sheet .card15');
   check('kartu undangan dibuat', cards.length >= 5, String(cards.length));
+  check('kartu memakai ukuran 10x15 cm (card15)', cards[0].classList.contains('card15'));
+  check('2 kartu per baris untuk kertas A4',
+    admin.window.getComputedStyle(admin.$('#inv-sheet')).gridTemplateColumns.split(' ').length <= 2 ||
+    /100mm/.test(admin.window.getComputedStyle(admin.$('#inv-sheet')).gridTemplateColumns),
+    admin.window.getComputedStyle(admin.$('#inv-sheet')).gridTemplateColumns);
+  check('kartu tidak mencetak nomor undian', !/Nomor undian Andal|\b\d{3}\b.*Nomor undian/.test(admin.$('#inv-sheet').textContent));
+  check('keterangan jumlah lembar A4 tampil', /lembar A4/.test(admin.text('#card-count')), admin.text('#card-count'));
   const html = admin.$('#inv-sheet').innerHTML;
   check('kartu memuat nama acara', html.includes('Perayaan Natal'));
   check('kartu memuat nama peserta', html.includes('Budi Santoso'));
   check('kartu memuat QR (data URI)', html.includes('data:image/png'));
-  check('kartu mencantumkan "Nomor undian muncul setelah scan"',
-    html.includes('Nomor undian muncul setelah scan'));
+  check('kartu mencantumkan petunjuk nomor undian setelah pindai',
+    html.includes('Nomor undian muncul setelah pindai'));
+
+  // susunan cetak: bawaan 4 kartu per lembar A4
+  check('susunan bawaan 4 kartu/A4', admin.$('#inv-sheet').classList.contains('inv-sheet--a4-4'),
+    admin.$('#inv-sheet').className);
+  const pagesA4 = [...admin.document.querySelectorAll('#inv-sheet .page')];
+  check('kartu dikelompokkan per lembar A4 (4 kartu/lembar)',
+    pagesA4.length >= 1 && pagesA4[0].querySelectorAll('.card15').length === 4,
+    pagesA4.map((p) => p.querySelectorAll('.card15').length).join(','));
+  check('keterangan ukuran kartu 9,5 x 14,25 cm tampil',
+    /9,5 × 14,25 cm/.test(admin.text('#card-size-note')), admin.text('#card-size-note'));
+  check('keterangan jumlah lembar A4 tampil',
+    /lembar A4/.test(admin.text('#card-count')) && /4 kartu\/lembar/.test(admin.text('#card-count')),
+    admin.text('#card-count'));
+
+  // ganti ke 2 kartu/A4 (kartu tepat 10x15 cm)
+  admin.$('#card-layout').value = 'a4-2';
+  admin.$('#card-layout').dispatchEvent(new admin.window.Event('change', { bubbles: true }));
+  await sleep(120);
+  check('mode 2 kartu/A4: kelas berubah', admin.$('#inv-sheet').classList.contains('inv-sheet--a4-2'));
+  {
+    const perLembar = [...admin.document.querySelectorAll('#inv-sheet .page')]
+      .map((p) => p.querySelectorAll('.card15').length);
+    check('mode 2 kartu/A4: maksimal 2 kartu per lembar',
+      Math.max(...perLembar) === 2 && perLembar.length === Math.ceil(perLembar.reduce((a, b) => a + b, 0) / 2),
+      perLembar.join(','));
+  }
+  check('mode 2 kartu/A4: ukuran kartu 10 x 15 cm',
+    /10 × 15 cm/.test(admin.text('#card-size-note')), admin.text('#card-size-note'));
+
+  // 4 kartu/A3 (ukuran asli, lembar lebih besar)
+  admin.$('#card-layout').value = 'a3-4';
+  admin.$('#card-layout').dispatchEvent(new admin.window.Event('change', { bubbles: true }));
+  await sleep(120);
+  check('mode 4 kartu/A3: kelas berubah', admin.$('#inv-sheet').classList.contains('inv-sheet--a3-4'));
+
+  // kembali ke 4 kartu/A4 untuk uji cetak
+  admin.$('#card-layout').value = 'a4-4';
+  admin.$('#card-layout').dispatchEvent(new admin.window.Event('change', { bubbles: true }));
+  await sleep(120);
+
+  // pratinjau siap cetak: popup diblokir -> berkas .html cetak diunduh
+  {
+    usePage(admin);
+    const blobs = [];
+    const createAsli = URL.createObjectURL;
+    URL.createObjectURL = (blob) => { blobs.push(blob); return createAsli.call(URL, blob); };
+    const openAsli = admin.window.open;
+    admin.window.open = () => null;
+    admin.window.__downloaded = '';
+    click(admin, '#btn-preview-cards');
+    await until(() => /10x15/.test(String(admin.window.__downloaded || '')), { label: 'berkas cetak' });
+    await sleep(200);
+    URL.createObjectURL = createAsli;
+    admin.window.open = openAsli;
+
+    const berkas = blobs.length ? await new Promise((resolve) => {
+      const reader = new admin.window.FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => resolve('');
+      reader.readAsText(blobs[0]);
+    }) : '';
+    check('pratinjau cetak menghasilkan berkas .html',
+      /kartu-undangan-10x15/.test(String(admin.window.__downloaded)), String(admin.window.__downloaded));
+    // CSS kartu diambil dari styles.css (di jsdom, cssRules bisa kosong)
+    check('berkas cetak berisi kartu 10x15 cm', /card15/.test(berkas), berkas.slice(0, 80));
+    check('berkas cetak memakai lembar (.page) + CSS', /class="page"/.test(berkas) && /<style>/.test(berkas));
+    check('berkas cetak memakai susunan 4 kartu/A4', /inv-sheet--a4-4/.test(berkas));
+    check('berkas cetak menyebut ukuran kertas A4', /size: A4/i.test(berkas));
+    check('berkas cetak memuat QR asli tiap tamu',
+      (berkas.match(/data:image\/png/g) || []).length >= 2);
+    check('berkas cetak memuat petunjuk skala 100%', /100%/.test(berkas));
+  }
 
   click(admin, '#btn-general-qr');
   await until(() => admin.$('#qr-preview').innerHTML.includes('QR umum'), { label: 'qr umum' });
@@ -770,6 +858,8 @@ console.log('== 19. Keamanan & absensi ditutup');
   await until(() => page.visible('view-invite'), { label: 'undangan (ditutup)' });
   check('halaman peserta menampilkan "Absensi sedang ditutup"', page.visible('invite-closed'));
   check('tombol konfirmasi dinonaktifkan', page.$('#btn-confirm').disabled === true);
+  check('pilihan keluarga/kupon disembunyikan saat absensi ditutup',
+    page.visible('invite-extras') === false);
   page.close();
   await rpc('admin_set_setting', { p_pin: 'admin1234', p_key: 'attendance_open', p_value: 'true' });
 }
@@ -926,6 +1016,276 @@ console.log('== 21. Admin & petugas — kupon, souvenir, anggota keluarga');
   const st = (await sql("select * from participants where name='Petugas Kupon'"))[0];
   check('petugas: kupon & souvenir sampai ke server', st.wants_meal === true && st.wants_souvenir === true);
   check('petugas: jumlah keluarga sampai ke server', st.family_count === 3, String(st.family_count));
+}
+
+
+console.log('== 22. Undangan (QR kartu) — dropdown keluarga & checkbox kupon/souvenir');
+{
+  // tamu undangan baru: 2 keluarga bernama, centang kupon makan & souvenir
+  const imp = await rpc('admin_import', {
+    p_pin: 'admin1234',
+    p_rows: JSON.stringify([{ name: 'Yohana Undangan', phone: '081388887777', org: 'Keluarga Besar' }])
+  });
+  check('import tamu undangan untuk uji', imp.inserted === 1, JSON.stringify(imp));
+  const tamu = (await sql("select * from participants where phone='081388887777'"))[0];
+
+  const page = await runPage('index.html', { query: `?t=${tamu.token}` });
+  await until(() => page.visible('view-invite'), { label: 'layar undangan' });
+
+  const opts = [...page.$('#i-family').querySelectorAll('option')].map((o) => o.value);
+  check('undangan punya dropdown keluarga 0-5', opts.join(',') === '0,1,2,3,4,5', opts.join(','));
+  check('undangan punya checkbox kupon makan & souvenir',
+    Boolean(page.$('#i-meal')) && Boolean(page.$('#i-souvenir')));
+  const labelUndangan = page.$('#view-invite').textContent;
+  check('label undangan menyebut Kupon Makan & Souvenir',
+    /Kupon Makan/.test(labelUndangan) && /Souvenir/.test(labelUndangan));
+
+  const sel = page.$('#i-family');
+  sel.value = '2';
+  sel.dispatchEvent(new page.window.Event('change', { bubbles: true }));
+  await sleep(60);
+  const boxes = [...page.document.querySelectorAll('#i-family-names [data-family-name]')];
+  check('kolom nama keluarga muncul di layar undangan', boxes.length === 2, String(boxes.length));
+  boxes[0].value = 'Hana';
+  boxes[1].value = 'Yosua';
+  page.$('#i-meal').checked = true;
+  page.$('#i-souvenir').checked = true;
+
+  click(page, '#btn-confirm');
+  await until(() => page.visible('view-success'), { label: 'sukses undangan' });
+
+  const row = (await sql('select * from participants where id=$1', [tamu.id]))[0];
+  check('undangan: hadir tercatat', row.attended === true);
+  check('undangan: jumlah keluarga tersimpan', row.family_count === 2, String(row.family_count));
+  check('undangan: kupon makan & souvenir tersimpan',
+    row.wants_meal === true && row.wants_souvenir === true);
+  const names = (await sql('select name from family_members where participant_id=$1 order by position', [tamu.id]))
+    .map((x) => x.name);
+  check('undangan: nama anggota keluarga tersimpan', names.join(',') === 'Hana,Yosua', names.join(','));
+
+  const extras = page.$('#success-extras').textContent;
+  check('undangan: layar sukses menampilkan keluarga', /2 anggota keluarga/.test(extras), extras);
+  check('undangan: layar sukses menampilkan kupon & souvenir',
+    /Kupon makan/.test(extras) && /Souvenir/.test(extras), extras);
+  page.close();
+
+  // scan ulang: keluarga & kupon tetap tampil di layar "sudah tercatat hadir"
+  const page2 = await runPage('index.html', { query: `?t=${tamu.token}` });
+  await until(() => page2.visible('view-already'), { label: 'layar sudah hadir' });
+  check('scan ulang undangan: nomor sama',
+    page2.text('#already-no') === String(tamu.lottery_no).padStart(3, '0'), page2.text('#already-no'));
+  const extras2 = page2.$('#already-extras').textContent;
+  check('scan ulang undangan: ringkasan kupon tetap tampil',
+    /2 anggota keluarga/.test(extras2) && /Kupon makan/.test(extras2), extras2);
+  page2.close();
+
+  // kupon dari halaman undangan masuk hitungan rekap admin
+  const all = await rpc('admin_get_all', { p_pin: 'admin1234' });
+  check('rekap admin menghitung kupon dari jalur undangan',
+    all.totals.meal >= 1 && all.totals.meal_with_family >= 3,
+    JSON.stringify({ meal: all.totals.meal, mealFam: all.totals.meal_with_family }));
+  const rec = all.participants.find((x) => x.id === tamu.id);
+  check('rekap admin memuat nama keluarga tamu undangan',
+    Array.isArray(rec.family_names) && rec.family_names.join(',') === 'Hana,Yosua',
+    JSON.stringify(rec.family_names));
+}
+
+
+console.log('== 23. Admin — reset data (regresi "DELETE requires a WHERE clause")');
+{
+  usePage(admin);
+  click(admin, '#tab-setting');
+  await sleep(200);
+
+  const adaPeserta = (await sql('select count(*)::int c from participants'))[0].c;
+  check('ada data sebelum reset', adaPeserta > 0, String(adaPeserta));
+
+  // prompt dua langkah: tombol reset semua mensyaratkan kata "HAPUS SEMUA"
+  let promptTerakhir = '';
+  const setPrompt = (nilai) => {
+    const fn = (msg) => { promptTerakhir = msg; return nilai; };
+    admin.window.prompt = fn;
+    globalThis.prompt = fn;
+  };
+  const setConfirm = (nilai) => { admin.window.confirm = () => nilai; globalThis.confirm = () => nilai; };
+  setPrompt('HAPUS SEMUA');
+  setConfirm(true);
+
+  admin.document.querySelector('[data-reset="all"]').click();
+  await until(async () => (await sql('select count(*)::int c from participants'))[0].c === 0,
+    { label: 'reset semua dari UI', timeout: 8000 });
+  check('reset semua dari panel admin berhasil (tanpa error WHERE)', true);
+  check('prompt konfirmasi menyebut HAPUS SEMUA', /HAPUS SEMUA/.test(promptTerakhir), promptTerakhir);
+  check('hadiah ikut kosong', (await sql('select count(*)::int c from prizes'))[0].c === 0);
+  check('anggota keluarga ikut kosong',
+    (await sql('select count(*)::int c from family_members'))[0].c === 0);
+  check('pesan sukses tampil di panel', /Reset SEMUA data selesai/i.test(admin.document.body.textContent));
+
+  // setelah reset, impor lagi & reset absensi lewat UI
+  await rpc('admin_import', {
+    p_pin: 'admin1234',
+    p_rows: JSON.stringify([{ name: 'Uji Setelah Reset', phone: '081255557777', org: 'Uji' }])
+  });
+  const tok = (await sql("select token from participants where phone='081255557777'"))[0].token;
+  await rpc('confirm_attendance', { p_token: tok });
+  check('hadir tercatat sebelum reset absensi',
+    (await sql('select attended from participants'))[0].attended === true);
+
+  setPrompt('RESET');
+  admin.document.querySelector('[data-reset="attendance"]').click();
+  await until(async () => (await sql('select count(*)::int c from participants where attended'))[0].c === 0,
+    { label: 'reset absensi dari UI', timeout: 8000 });
+  check('reset absensi dari panel admin berhasil', true);
+  check('peserta undangan tetap ada',
+    (await sql('select count(*)::int c from participants'))[0].c === 1);
+}
+
+
+console.log('== 24. Petugas — PWA (pasang aplikasi) & izin kamera');
+{
+  // 1) banner pasang aplikasi muncul di tab browser biasa
+  const page = await runPage('petugas.html', {
+    storage: { staff_pin: JSON.stringify('staff1234') },
+    beforeModules(w) {
+      // tiru peramban yang mendukung pemasangan PWA
+      w.__installPrompt = null;
+      w.matchMedia = (q) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {} });
+      // jsdom belum punya mediaDevices: tiru API kamera
+      if (!w.navigator.mediaDevices) {
+        Object.defineProperty(w.navigator, 'mediaDevices', {
+          configurable: true,
+          value: { getUserMedia: async () => ({ getTracks: () => [{ stop() {} }] }) }
+        });
+      }
+    }
+  });
+  await until(() => page.visible('view-app'), { label: 'aplikasi petugas' });
+  // peramban memicu ajakan pemasangan (di HP nyata: sebelum/saat halaman dimuat)
+  page.window.dispatchEvent(new page.window.Event('beforeinstallprompt'));
+  await until(() => page.visible('install-banner'), { label: 'banner pasang aplikasi' });
+  check('banner pasang aplikasi tampil di tab browser', page.visible('install-banner'));
+  check('banner menjelaskan manfaat kamera/offline',
+    /kamera|offline/i.test(page.text('#install-banner-text')), page.text('#install-banner-text'));
+
+  // tutup banner -> diingat
+  click(page, '#btn-install-close');
+  await sleep(80);
+  check('banner bisa ditutup', !page.visible('install-banner'));
+  check('pilihan tutup diingat di penyimpanan',
+    JSON.parse(page.window.localStorage.getItem('staff_install_dismiss') || 'false') === true,
+    String(page.window.localStorage.getItem('staff_install_dismiss')));
+
+  // 2) saat sudah terpasang (standalone) banner tidak muncul
+  const standalone = await runPage('petugas.html', {
+    storage: { staff_pin: JSON.stringify('staff1234') },
+    beforeModules(w) {
+      w.matchMedia = (q) => ({ matches: /display-mode:\s*standalone/.test(q), media: q,
+        addEventListener() {}, removeEventListener() {} });
+    }
+  });
+  await until(() => standalone.visible('view-app'), { label: 'aplikasi (standalone)' });
+  await sleep(200);
+  check('mode terpasang: banner tidak ditampilkan', !standalone.visible('install-banner'));
+  standalone.close();
+
+  // 3) diagnosa izin kamera
+  usePage(page);
+  click(page, '#tab-scan');
+  await sleep(150);
+  page.$('#cam-diagnose').open = true;
+  page.$('#cam-diagnose').dispatchEvent(new page.window.Event('toggle'));
+  await until(() => /HTTPS|Izin kamera/i.test(page.text('#cam-check-list')), { label: 'daftar periksa' });
+  const cek = page.text('#cam-check-list');
+  check('diagnosa memeriksa HTTPS', /HTTPS/i.test(cek), cek.slice(0, 120));
+  check('diagnosa memeriksa izin kamera', /Izin kamera/i.test(cek), cek.slice(0, 120));
+  check('diagnosa menyebut status terpasang/tab browser',
+    /tab browser|terpasang/i.test(cek), cek.slice(0, 160));
+
+  // 4) uji kamera: izin ditolak -> pesan jelas
+  globalThis.navigator.mediaDevices.getUserMedia = async () => {
+    const e = new Error('Permission denied'); e.name = 'NotAllowedError'; throw e;
+  };
+  click(page, '#btn-cam-test');
+  await until(() => /izin|kamera/i.test(page.text('#cam-test-result')), { label: 'hasil uji kamera' });
+  check('uji kamera: izin ditolak -> panduan pengaturan',
+    /dit(ola|olak)/i.test(page.text('#cam-test-result')), page.text('#cam-test-result'));
+
+  // 5) uji kamera: izin diberikan -> dihentikan lagi (uji saja)
+  let dihentikan = false;
+  globalThis.navigator.mediaDevices.getUserMedia = async () => ({
+    getTracks: () => [{ stop: () => { dihentikan = true; } }]
+  });
+  click(page, '#btn-cam-test');
+  await until(() => /berhasil/i.test(page.text('#cam-test-result')), { label: 'kamera ok' });
+  check('uji kamera berhasil -> izin tersimpan', /berhasil/i.test(page.text('#cam-test-result')));
+  check('uji kamera mematikan stream setelah diuji', dihentikan === true);
+
+  // 6) petunjuk pasang manual
+  click(page, '#btn-cam-reinstall');
+  await sleep(80);
+  check('petunjuk pasang Android tampil',
+    /Pasang aplikasi|Layar utama/i.test(page.document.body.textContent));
+  click(page, '#btn-cam-reinstall-ios');
+  await sleep(80);
+  check('petunjuk pasang iPhone tampil',
+    /Tambah ke Layar Utama/i.test(page.document.body.textContent));
+  page.close();
+}
+
+
+console.log('== 25. Layar undian — salju bergerak');
+{
+  const salju = await runPage('undian.html');
+  await until(() => salju.$('#snowfall'), { label: 'kanvas salju' });
+
+  check('kanvas salju ada di halaman undian', Boolean(salju.$('#snowfall')));
+  check('kanvas tidak menangkap sentuhan (pointer-events none)',
+    /pointer-events:\s*none/.test(readFileSync(join(ROOT, 'styles.css'), 'utf8').match(/\.snowfall\s*\{[^}]*\}/)[0]));
+  check('lapisan salju CSS lama tetap ada',
+    Boolean(salju.document.querySelector('.snow')));
+
+  // butir salju dilukis (arc/fill terpanggil) setelah beberapa frame
+  await until(() => (salju.window.__canvasCalls?.fill || 0) > 0, { label: 'salju dilukis' });
+  const calls = salju.window.__canvasCalls;
+  check('butir salju dilukis di kanvas', calls.arc > 20 && calls.fill > 20,
+    `arc=${calls.arc} fill=${calls.fill}`);
+  check('kanvas diskalakan mengikuti devicePixelRatio',
+    calls.setTransform > 0 && salju.$('#snowfall').width >= salju.window.innerWidth,
+    `${salju.$('#snowfall').width}x${salju.$('#snowfall').height}`);
+
+  // salju bergerak turun
+  const posisi = () => (salju.window.__snowY = salju.$('#snowfall').dataset.y);
+  const frameAwal = calls.fill;
+  await sleep(400);
+  check('animasi berjalan terus (requestAnimationFrame)',
+    calls.fill > frameAwal, `${frameAwal} -> ${calls.fill}`);
+
+  // lapisan salju berada di atas latar tapi di bawah isi layar
+  const css = readFileSync(join(ROOT, 'styles.css'), 'utf8');
+  check('z-index salju di bawah panel layar',
+    /\.snowfall\s*\{[^}]*z-index:\s*2/.test(css) && /body\.screen \.screen-grid[^{]*\{[^}]*z-index:\s*5/.test(css));
+
+  // elemen salju tidak mengganggu pembaca layar
+  check('salju disembunyikan dari pembaca layar',
+    salju.$('#snowfall').getAttribute('aria-hidden') === 'true');
+
+  salju.close();
+
+  // prefers-reduced-motion: salju tampil tetapi tidak bergerak
+  const diam = await runPage('undian.html', {
+    beforeModules(w) {
+      const asli = w.matchMedia;
+      w.matchMedia = (q) => (/prefers-reduced-motion/.test(q)
+        ? { matches: true, media: q, addEventListener() {}, removeEventListener() {} }
+        : asli.call(w, q));
+    }
+  });
+  await sleep(500);
+  const c1 = diam.window.__canvasCalls?.fill || 0;
+  await sleep(400);
+  const c2 = diam.window.__canvasCalls?.fill || 0;
+  check('reduced-motion: salju digambar sekali (tidak beranimasi)', c1 > 0 && c2 === c1, `${c1} -> ${c2}`);
+  diam.close();
 }
 
 console.log(`\n${pass} lulus, ${fails.length} gagal`);

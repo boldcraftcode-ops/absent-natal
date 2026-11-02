@@ -489,8 +489,120 @@ function bind() {
   });
 }
 
+
+/* ==================================================================== salju
+   Salju bergerak di layar undian. Digambar di <canvas> supaya ringan untuk
+   proyektor: jumlah butir menyesuaikan luas layar, kecepatan konstan, dan
+   berhenti otomatis saat tab tidak terlihat (hemat baterai).
+   Menghormati "prefers-reduced-motion": salju tidak jatuh.
+   ======================================================================== */
+const SNOW = {
+  canvas: null, ctx: null, butir: [], raf: 0, w: 0, h: 0, dpr: 1,
+  kurangiGerak: false, aktif: false
+};
+
+function snowUkuran() {
+  const c = SNOW.canvas;
+  if (!c) return;
+  SNOW.dpr = Math.min(window.devicePixelRatio || 1, 2);
+  SNOW.w = window.innerWidth;
+  SNOW.h = window.innerHeight;
+  c.width = Math.floor(SNOW.w * SNOW.dpr);
+  c.height = Math.floor(SNOW.h * SNOW.dpr);
+  c.style.width = `${SNOW.w}px`;
+  c.style.height = `${SNOW.h}px`;
+  SNOW.ctx.setTransform(SNOW.dpr, 0, 0, SNOW.dpr, 0, 0);
+}
+
+function snowButirBaru(acak, awal = false) {
+  const r = acak ? Math.random() : 0;
+  const ukuran = 1.1 + r * 2.9;               // 1,1 – 4,0 px
+  return {
+    x: Math.random() * SNOW.w,
+    y: awal ? Math.random() * SNOW.h : -10 - Math.random() * 40,
+    r: ukuran,
+    v: 0.25 + ukuran * 0.22 + Math.random() * 0.35,   // turun pelan
+    ayun: 0.4 + Math.random() * 1.2,                  // geser kiri-kanan
+    fase: Math.random() * Math.PI * 2,
+    opasitas: 0.35 + Math.random() * 0.5
+  };
+}
+
+function snowIsi() {
+  // kepadatan menyesuaikan luas layar, dibatasi agar proyektor tetap ringan
+  const target = Math.round(Math.min(220, Math.max(40, (SNOW.w * SNOW.h) / 12000)));
+  SNOW.butir = Array.from({ length: target }, () => snowButirBaru(false, true));
+}
+
+function snowGambar() {
+  const { ctx } = SNOW;
+  if (!ctx) return;
+  ctx.clearRect(0, 0, SNOW.w, SNOW.h);
+  for (const b of SNOW.butir) {
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(255, 252, 244, ${b.opasitas})`;
+    ctx.fill();
+    // kilau kecil hanya untuk butir besar
+    if (b.r > 2.6) {
+      ctx.beginPath();
+      ctx.arc(b.x - b.r * 0.25, b.y - b.r * 0.25, b.r * 0.34, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255, 255, 255, .85)';
+      ctx.fill();
+    }
+  }
+}
+
+function snowLangkah() {
+  if (!SNOW.aktif) return;
+  const t = performance.now() / 1000;
+  for (const b of SNOW.butir) {
+    if (!SNOW.kurangiGerak) {
+      b.y += b.v;
+      b.x += Math.sin(t * b.ayun + b.fase) * 0.35;
+    }
+    if (b.y - b.r > SNOW.h + 4) {           // keluar layar -> muncul lagi di atas
+      Object.assign(b, snowButirBaru(false, false));
+    }
+    if (b.x < -8) b.x = SNOW.w + 8;
+    if (b.x > SNOW.w + 8) b.x = -8;
+  }
+  snowGambar();
+  SNOW.raf = requestAnimationFrame(snowLangkah);
+}
+
+function snowMulai() {
+  const c = document.getElementById('snowfall');
+  if (!c || !c.getContext) return;                     // peramban tanpa canvas: pakai .snow CSS
+  SNOW.canvas = c;
+  SNOW.ctx = c.getContext('2d');
+  if (!SNOW.ctx) return;
+  SNOW.kurangiGerak = Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches);
+  SNOW.aktif = true;
+  snowUkuran();
+  snowIsi();
+  snowGambar();
+  if (!SNOW.kurangiGerak) SNOW.raf = requestAnimationFrame(snowLangkah);
+
+  let tunda = 0;
+  window.addEventListener('resize', () => {
+    clearTimeout(tunda);
+    tunda = setTimeout(() => { snowUkuran(); snowIsi(); snowGambar(); }, 200);
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      SNOW.aktif = false;
+      cancelAnimationFrame(SNOW.raf);
+    } else if (!SNOW.kurangiGerak) {
+      SNOW.aktif = true;
+      SNOW.raf = requestAnimationFrame(snowLangkah);
+    }
+  });
+}
+
 /* ================================================================= mulai */
 function main() {
+  snowMulai();
   loadLocal();
   bind();
   setNet(online());

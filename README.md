@@ -24,7 +24,7 @@ natal/
 ├── petugas.html             Aplikasi petugas registrasi (PWA offline-first)
 ├── admin.html               Panel panitia (rekap, undangan & QR, hadiah, pengaturan)
 ├── undian.html              Layar undian untuk proyektor
-├── styles.css               Tema & tata letak (mobile-first, cetak A4)
+├── styles.css               Tema & tata letak (mobile-first, cetak A4 & kartu 10×15 cm)
 ├── config.js                ⚠️ SATU-SATUNYA berkas yang perlu Anda isi
 ├── api.js                   Pembungkus fetch ke Supabase RPC
 ├── util.js                  Escape XSS, format nomor/tanggal, acak kriptografis, dll.
@@ -33,6 +33,8 @@ natal/
 ├── manifest.webmanifest     Agar aplikasi petugas bisa di-install
 ├── netlify.toml             Header cache (sw.js & config.js tidak di-cache)
 ├── demo.html                Pratinjau desain statis (data contoh, CSS inline, tanpa jaringan)
+├── kartu-undangan-10x15.html       Contoh kartu undangan 10×15 cm siap cetak (data contoh)
+├── kartu-undangan-10x15-contoh.pdf PDF contoh: A4, 2 kartu 10×15 cm per halaman
 ├── icons/                   ikon 192 & 512 px, maskable, apple-touch
 ├── js/
 │   ├── index.js             Logika halaman peserta
@@ -48,6 +50,8 @@ natal/
 ├── tools/
 │   ├── make-demo.mjs        Pembuat demo.html (node tools/make-demo.mjs)
 │   ├── make-icons.py        Pembuat ikon aplikasi (python3 tools/make-icons.py)
+│   ├── make-cards-sample.mjs  Pembuat kartu-undangan-10x15.html
+│   ├── make-cards-pdf.py    Pembuat PDF contoh kartu (butuh reportlab)
 │   └── check-contrast.py    Audit kontras WCAG palet (python3 tools/check-contrast.py)
 ├── supabase/
 │   └── schema.sql           Tabel, RLS, fungsi RPC, hak akses (jalankan sekali)
@@ -227,7 +231,8 @@ Aturan penting yang sudah diterapkan:
 ### Anggota keluarga, kupon makan & souvenir
 
 * Halaman peserta memakai **dropdown** jumlah anggota keluarga **0–5** (bukan
-  kolom angka bebas). Begitu jumlah dipilih, kolom nama anggota keluarga muncul
+  kolom angka bebas) — tersedia **di dua jalur**: layar **undangan** (tamu yang
+  memindai QR kartu undangan) dan layar **form tanpa undangan**. Begitu jumlah dipilih, kolom nama anggota keluarga muncul
   sesuai jumlah tersebut — **opsional**, boleh dikosongkan.
 * Dua kotak centang tersedia: **Kupon Makan** dan **Souvenir**. Kupon makan
   berlaku untuk peserta **beserta anggota keluarga**; souvenir satu per peserta.
@@ -236,6 +241,11 @@ Aturan penting yang sudah diterapkan:
   dan jumlahnya dipotong maksimal **5**. Angka `family_count` selalu disamakan
   dengan jumlah nama yang tercatat — tetapi tidak pernah turun saat data
   digabung (merge) dengan pendaftaran ulang.
+* Jalur undangan mengirim pilihan itu bersama `confirm_attendance`. Bila tamu
+  memindai ulang, kolom keluarga/kupon **tidak tampil lagi** (layar “sudah
+  tercatat hadir” hanya menampilkan ringkasannya) sehingga nomor undian & waktu
+  hadir awal tidak berubah. Pilihan keluarga/kupon juga disembunyikan saat
+  absensi ditutup.
 * Kartu statistik **🍱 Kupon makan** dan **🎁 Souvenir** di panel admin memakai
   angka resmi server (`totals`), yaitu jumlah peserta hadir yang mencentang
   **ditambah** anggota keluarganya.
@@ -289,10 +299,105 @@ Aturan penting yang sudah diterapkan:
 | Antrean petugas tidak turun | Sinyal lemah/PIN berubah. Cek tombol **Sinkron**, lalu login ulang. |
 | Halaman peserta basi setelah update | Service Worker menyimpan versi lama. Muat ulang 2×, atau tunggu ±1 menit. |
 | Peserta “tidak ditemukan” | Token undangan salah/cetakan lama. Cari manual di admin/petugas. |
+| **“Gagal memproses permintaan: DELETE requires a WHERE clause”** saat *Reset semua* / *Reset absensi* | Ekstensi pengaman database (mis. `safeupdate`) menolak `DELETE`/`UPDATE` tanpa `WHERE`. Sudah diperbaiki: **semua** `DELETE`/`UPDATE` di fungsi memakai `WHERE` eksplisit (reset menyeluruh memakai bentuk yang selalu benar, mis. `where id is not null or true`). Bila masih muncul, `supabase/schema.sql` di project Anda masih versi lama — jalankan ulang berkas itu (aman diulang). Uji: `cd tests && node sql.test.mjs` bagian **8b**. |
 
 ---
 
-## 12. Tema & palet warna
+## 12. Memasang aplikasi petugas (PWA) & izin kamera
+
+`petugas.html` **sudah** berupa PWA: `manifest.webmanifest` (standalone, ikon 192/512 +
+maskable), service worker offline-first, dan HTTPS dari Netlify (syarat kamera).
+
+### Cara memasang di HP petugas
+
+1. Buka `https://<situs-anda>/petugas.html` di **Chrome (Android)** atau **Safari (iPhone)**.
+2. **Android:** ketuk banner **📲 Pasang sebagai aplikasi → Pasang** di bagian atas halaman,
+   atau menu **⋮ → “Pasang aplikasi”**. **iPhone:** ikon **Bagikan ⬆️ → “Tambah ke Layar Utama”**.
+3. Buka aplikasi dari ikon di layar utama. Pada mode terpasang, izin kamera tersimpan
+   permanen dan tidak perlu diizinkan ulang setiap kali.
+
+> Banner otomatis disembunyikan bila aplikasi sudah terpasang, atau bila petugas
+> menekan ✕ (pilihan diingat di perangkat).
+
+### Bila kamera tetap tidak mau terbuka
+
+Buka tab **Scan** → **🔍 Periksa izin kamera**:
+
+| Baris | Arti |
+|---|---|
+| ✅ Alamat HTTPS | Kamera hanya boleh di `https://` (bukan `http://` atau IP lokal) |
+| ✅ Berjalan sebagai aplikasi terpasang | Bila ⚠️ *tab browser*, pasang dulu aplikasinya |
+| ✅ API kamera tersedia | Peramban terlalu tua → pakai Chrome/Safari terbaru |
+| ✅ Izin kamera: DIIZINKAN / BELUM DIMINTA / DITOLAK | Bila DITOLAK: pengaturan situs → Kamera → Izinkan → muat ulang |
+| Peramban terdeteksi | Membantu saat melapor (Chrome/Samsung/Firefox/Safari) |
+
+Tombol **Uji kamera** meminta izin sekali lalu langsung mematikan kamera (tidak
+merekam apa pun) — cara tercepat memunculkan dialog izin sebelum hari-H. Tersedia juga
+tombol petunjuk pemasangan untuk **Android** dan **iPhone**.
+
+Selalu ada jalur cadangan: tab **Cari** (hadirkan manual) dan kolom **kode undangan manual**
+di tab Scan, sehingga absensi tidak pernah macet gara-gara kamera.
+
+---
+
+### Salju di layar undian
+
+`undian.html` menampilkan **salju yang benar-benar bergerak turun** di belakang angka
+undian (canvas `#snowfall`, digambar oleh `js/undian.js`):
+
+* jumlah butir menyesuaikan luas layar (40–220 butir), ukuran 1,1–4 px, turun pelan
+  dengan gerak mengayun kiri-kanan;
+* butir yang keluar layar muncul lagi di atas, jadi salju tidak pernah habis;
+* lapisan berada **di atas latar tema tetapi di bawah digit/pemenang** supaya angka
+  undian tetap terbaca dari jarak jauh;
+* berhenti otomatis saat tab tidak terlihat (hemat baterai proyektor) dan ikut
+  aturan **prefers-reduced-motion** (salju tampil diam, tanpa animasi);
+* tanpa `pointer-events`, jadi tidak menghalangi tombol/kontrol.
+
+---
+
+## 13. Cetak kartu undangan (10 × 15 cm)
+
+Kartu undangan berukuran dasar **10 × 15 cm** (100 × 150 mm). Panel admin →
+tab **Undangan & QR** → bagian *Pratinjau kartu undangan · 10 × 15 cm*.
+
+### Pilih susunan cetak (dropdown **Susunan cetak**)
+
+| Susunan | Kartu per lembar | Ukuran kartu | Keterangan |
+|---|---|---|---|
+| **4 kartu / A4** (bawaan) | 4 (2 × 2) | **9,5 × 14,25 cm** (95 %) | hemat kertas — pilihan paling umum |
+| 2 kartu / A4 | 2 (2 × 1) | **tepat 10 × 15 cm** | ukuran asli, kertas 2× lebih banyak |
+| 4 kartu / A3 | 4 (2 × 2) | **tepat 10 × 15 cm** | ukuran asli, perlu printer A3 |
+
+> **Kenapa 4 kartu di A4 tidak 10 × 15 cm?** Dua baris kartu 15 cm = **300 mm**,
+> sedangkan tinggi A4 hanya **297 mm** — tidak mungkin muat. Karena itu mode
+> 4-kartu-per-A4 mengecilkan kartu 5 % (9,5 × 14,25 cm) agar keempatnya masuk
+> rapi dan tetap bisa dipotong. Bila ukuran harus tepat 10 × 15 cm, pakai
+> 2 kartu/A4 atau 4 kartu/A3.
+
+### Langkah mencetak
+
+1. Isi **Waktu acara** dan **Tempat acara** (diingat di perangkat ini).
+2. Pilih **Susunan cetak** dan jumlah kartu → **Tampilkan** (pratinjau 1:1 per lembar).
+3. Tekan **👁️ Pratinjau siap cetak 10×15** (atau **🖨️ Cetak kartu 10×15 cm**) —
+   terbuka tab cetak berisi panduan, lalu dialog print muncul otomatis. Bila popup
+   diblokir, berkas `.html` cetak diunduh dan bisa dibuka lalu Ctrl/Cmd + P.
+4. Di dialog printer: kertas sesuai susunan (A4/A3), skala **100 %** (bukan
+   *Fit to page*), margin **None**, header–footer **mati**.
+
+QR asli per tamu dibuat 480 px (≈300 dpi pada kotak 40 mm). Nomor undian tetap
+**tidak dicetak**.
+
+### Berkas contoh (data contoh, tanpa aplikasi)
+
+* `kartu-undangan-10x15.html` — `node tools/make-cards-sample.mjs` (bawaan 4 kartu/A4;
+  opsi `--2-per-a4`, `--4-per-a3`)
+* `kartu-undangan-10x15-contoh.pdf` — `python3 tools/make-cards-pdf.py` (bawaan 4 kartu/A4;
+  opsi `--2-per-a4`, `--4-per-a3`, `--satu-per-halaman`)
+
+---
+
+## 14. Tema & palet warna
 
 Seluruh warna berada di blok `:root` pada `styles.css`. Palet diambil langsung
 dari gambar referensi dan diukur dengan mengambil sampel piksel:
@@ -324,7 +429,7 @@ python3 tools/check-contrast.py   # 27 pasangan, semua lulus
 Mengganti tema lagi cukup dengan menyunting nilai di `:root`, lalu jalankan
 `node tools/make-demo.mjs` dan `python3 tools/make-icons.py`.
 
-## 13. Keamanan (ringkas)
+## 15. Keamanan (ringkas)
 
 * Tabel **tidak bisa dibaca langsung** oleh `anon` maupun `authenticated`
   (RLS tanpa policy + `revoke all`).
@@ -340,7 +445,7 @@ Mengganti tema lagi cukup dengan menyunting nilai di `:root`, lalu jalankan
 
 ---
 
-## 14. Lisensi & atribusi library
+## 16. Lisensi & atribusi library
 
 | Library | Versi | Lisensi |
 |---|---|---|

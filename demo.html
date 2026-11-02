@@ -878,60 +878,226 @@ body.screen {
 }
 
 /* ==========================================================================
-   KARTU UNDANGAN (cetak A4, ±12 kartu / halaman)
+   KARTU UNDANGAN — kartu 10 x 15 cm (100 x 150 mm)
+   Tiga susunan cetak (kelas pada #inv-sheet):
+     .inv-sheet--a4-4  4 kartu / A4  -> kartu 9,5 x 14,25 cm (skala 95%)
+     .inv-sheet--a4-2  2 kartu / A4  -> kartu tepat 10 x 15 cm
+     .inv-sheet--a3-4  4 kartu / A3  -> kartu tepat 10 x 15 cm
+   Catatan: 4 kartu 10x15 cm tidak mungkin di A4 (2 x 150 mm = 300 mm > 297 mm),
+   jadi untuk 4 per lembar A4 kartu diperkecil 5% agar tetap rapi & tanpa tumpang.
    ========================================================================== */
 .inv-sheet {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  grid-auto-rows: auto;
-  gap: 4mm;
-  background: #CBBDA6;
-  padding: 4mm;
-  border-radius: 8px;
+  gap: 10mm;
+  justify-content: center;
+  padding: 8mm 0;
+  background: transparent;
+  border: 0;
 }
-.inv-card {
-  background: linear-gradient(180deg, #FFFAF1, #F6EBD8);
-  border: 1px solid #B9A68C;
-  border-radius: 2mm;
-  padding: 3mm;
-  height: 62mm;
+
+/* satu lembar kertas (A4 / A3) dalam pratinjau */
+.page {
+  position: relative;
+  width: 210mm;
+  height: 297mm;
+  padding: 4mm 5mm;
   display: grid;
-  grid-template-rows: auto 1fr auto;
-  gap: 1.5mm;
-  color: var(--cocoa-800);
+  align-content: start;
+  justify-content: center;
+  grid-template-columns: repeat(2, 100mm);
+  grid-auto-rows: 150mm;
+  gap: 3mm 8mm;
+  background: #fff;
+  border: 1px solid var(--kraft-300);
+  box-shadow: 0 8px 24px rgba(42, 26, 18, .14);
+}
+.page__tag {
+  position: absolute;
+  top: 1.6mm;
+  right: 3mm;
+  font-size: 2.6mm;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--kraft-500);
+}
+
+/* --- 4 kartu per A4: kartu diskalakan 95% (9,5 x 14,25 cm) --- */
+.inv-sheet--a4-4 .page {
+  grid-template-columns: repeat(2, 95mm);
+  grid-auto-rows: 142.5mm;
+  gap: 2mm 8mm;
+}
+.inv-sheet--a4-4 .card15 { zoom: .95; }
+
+/* --- 4 kartu per A3: ukuran asli 10 x 15 cm --- */
+.inv-sheet--a3-4 .page {
+  width: 297mm;
+  height: 420mm;
+  grid-template-columns: repeat(2, 100mm);
+  grid-auto-rows: 150mm;
+  gap: 4mm 12mm;
+}
+
+/* kartu: dasar selalu 100 x 150 mm, diskalakan oleh zoom di atas */
+.card15 {
+  position: relative;
+  width: 100mm;
+  height: 150mm;
+  background: linear-gradient(160deg, #FFFAF1 0%, #F6EBD8 58%, #F0DFC4 100%);
+  border: 1px solid #B9A68C;
+  border-radius: 3mm;
   overflow: hidden;
   break-inside: avoid;
-  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, .6);
+  page-break-inside: avoid;
+  color: var(--cocoa-800);
 }
-.inv-card__head {
-  font-size: 7pt; line-height: 1.15; text-transform: uppercase; letter-spacing: .06em;
-  color: var(--cran-800); font-weight: 700; text-align: center;
-  border-bottom: 2px solid var(--honey-500); padding-bottom: 1mm;
+/* garis potong tipis di dalam tepi (aman untuk mesin cetak) */
+.card15::before {
+  content: "";
+  position: absolute;
+  inset: 1.5mm;
+  border: .2mm dashed #C2AE93;
+  border-radius: 2.4mm;
+  pointer-events: none;
 }
-.inv-card__body { display: flex; gap: 2.5mm; align-items: center; min-height: 0; }
-.inv-card__qr { flex: 0 0 26mm; width: 26mm; height: 26mm; }
-.inv-card__qr img { width: 100%; height: 100%; display: block; image-rendering: pixelated; }
-.inv-card__info { min-width: 0; }
-.inv-card__name {
-  font-family: var(--font-display); font-size: 10pt; font-weight: 700; line-height: 1.15;
+/* tanda sudut */
+.card15::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(#8A7A63, #8A7A63) left top / 5mm 1px no-repeat,
+    linear-gradient(#8A7A63, #8A7A63) left top / 1px 5mm no-repeat,
+    linear-gradient(#8A7A63, #8A7A63) right top / 5mm 1px no-repeat,
+    linear-gradient(#8A7A63, #8A7A63) right top / 1px 5mm no-repeat,
+    linear-gradient(#8A7A63, #8A7A63) left bottom / 5mm 1px no-repeat,
+    linear-gradient(#8A7A63, #8A7A63) left bottom / 1px 5mm no-repeat,
+    linear-gradient(#8A7A63, #8A7A63) right bottom / 5mm 1px no-repeat,
+    linear-gradient(#8A7A63, #8A7A63) right bottom / 1px 5mm no-repeat;
+}
+
+.card15__inner {
+  position: absolute;
+  inset: 6mm;
+  display: grid;
+  grid-template-rows: auto auto 1fr auto auto;
+  gap: 4mm;
+}
+.card15__rule {
+  height: 1.2mm;
+  border-radius: 1mm;
+  background: linear-gradient(90deg, var(--cran-700), var(--honey-500) 45%, var(--olive-600));
+}
+.card15__head { text-align: center; }
+.card15__star { color: var(--honey-500); font-size: 4.6mm; line-height: 1; }
+.card15__event {
+  font-family: var(--font-display);
+  font-size: 6.4mm;
+  font-weight: 700;
+  line-height: 1.1;
+  margin-top: .6mm;
+  color: var(--cocoa-800);
   overflow-wrap: anywhere;
 }
-.inv-card__org { font-size: 7.5pt; color: var(--olive-700); margin-top: .5mm; overflow-wrap: anywhere; }
-.inv-card__foot {
-  font-size: 6.5pt; color: var(--ink-soft); text-align: center; line-height: 1.2;
-  border-top: 1px dashed rgba(114, 91, 66, .45); padding-top: 1mm;
+.card15__org {
+  font-size: 2.9mm;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--cran-800);
+  margin-top: 1mm;
 }
-@media print {
-  .inv-sheet { background: #fff; padding: 0; gap: 3mm; }
-  .inv-card { height: 63mm; border-color: #A5947C; }
-}
-@page { size: A4; margin: 8mm; }
 
+.card15__body { display: flex; gap: 5mm; align-items: center; }
+.card15__qr {
+  flex: 0 0 40mm;
+  width: 40mm;
+  height: 40mm;
+  padding: 1.6mm;
+  background: #fff;
+  border: .4mm solid var(--cocoa-800);
+  border-radius: 2mm;
+}
+.card15__qr img { width: 100%; height: 100%; display: block; image-rendering: pixelated; }
+.card15__info { min-width: 0; }
+.card15__label {
+  font-size: 2.6mm;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+.card15__name {
+  font-family: var(--font-display);
+  font-size: 5.6mm;
+  font-weight: 700;
+  line-height: 1.1;
+  margin-top: .8mm;
+  overflow-wrap: anywhere;
+}
+.card15__sub { font-size: 3mm; color: var(--olive-700); margin-top: 1.2mm; overflow-wrap: anywhere; }
+
+.card15__meta {
+  display: grid;
+  gap: 1.6mm;
+  border-top: .3mm solid var(--kraft-300);
+  padding-top: 3mm;
+}
+.card15__meta > div { display: grid; grid-template-columns: 17mm 1fr; gap: 2mm; font-size: 3mm; }
+.card15__meta span { color: var(--cran-800); font-weight: 700; letter-spacing: .04em; }
+.card15__meta strong { font-weight: 600; overflow-wrap: anywhere; }
+
+.card15__foot {
+  display: flex;
+  align-items: center;
+  gap: 3mm;
+  border-top: .3mm dashed var(--kraft-500);
+  padding-top: 2.6mm;
+}
+.card15__foot .cut { color: var(--honey-500); font-size: 3.4mm; }
+.card15__tips { flex: 1 1 auto; font-size: 2.7mm; color: var(--ink-soft); line-height: 1.3; }
+.card15__no { font-size: 2.6mm; color: var(--kraft-500); font-variant-numeric: tabular-nums; }
+
+/* pratinjau di layar kecil: perkecil tampilan saja (ukuran cetak tidak berubah) */
+@media screen and (max-width: 240mm) {
+  .inv-sheet { zoom: .72; }
+}
+@media screen and (max-width: 170mm) {
+  .inv-sheet { zoom: .55; }
+}
+@media screen and (max-width: 120mm) {
+  .inv-sheet { zoom: .42; }
+}
+
+/* ------------------------------- cetak ------------------------------- */
+@page { size: A4; margin: 0; }
 @media print {
+  .inv-sheet {
+    display: block !important;
+    padding: 0 !important;
+    gap: 0 !important;
+    zoom: 1 !important;
+  }
+  .page {
+    width: 210mm;
+    height: 296.6mm;
+    margin: 0;
+    padding: 4mm 5mm;
+    border: 0;
+    box-shadow: none;
+    break-after: page;
+    page-break-after: always;
+  }
+  .page:last-child { break-after: auto; page-break-after: auto; }
+  .page__tag { display: none; }
+  .card15 { box-shadow: none; }
   .scroll-y { max-height: none !important; overflow: visible !important; }
-  .inv-sheet { display: grid !important; }
-  #panel-undangan .card, #panel-rekap .card { break-inside: auto; }
+  #panel-undangan .card { break-inside: auto; }
   .qr-box { box-shadow: none; }
+}
+
+/* 4 kartu per A3 dicetak pada kertas A3 */
+@media print {
+  .inv-sheet--a3-4 .page { width: 297mm; height: 419mm; }
 }
 
 /* ==========================================================================
@@ -1030,6 +1196,71 @@ body.screen {
 }
 .family-input-wrap .input { padding-left: 34px; }
 
+/* ==========================================================================
+   BANNER PASANG APLIKASI (PWA petugas)
+   ========================================================================== */
+.install-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  margin: 0 0 10px;
+  border-radius: var(--radius-sm);
+  border: 1.5px solid rgba(192, 138, 78, .55);
+  background: linear-gradient(180deg, #FFF6E6, #F6EBD8);
+  box-shadow: 0 3px 12px rgba(42, 26, 18, .12);
+}
+.install-banner__icon {
+  flex: 0 0 auto;
+  width: 34px; height: 34px;
+  display: grid; place-items: center;
+  font-size: 1.05rem;
+  border-radius: 10px;
+  background: var(--honey-400);
+  color: #3B2414;
+}
+.install-banner__body { flex: 1 1 auto; min-width: 0; display: grid; gap: 1px; }
+.install-banner__body strong { font-size: .9rem; color: var(--cocoa-800); }
+.install-banner__body span { color: var(--ink-soft); line-height: 1.3; }
+.btn--plain {
+  background: transparent;
+  border: 0;
+  color: var(--ink-soft);
+  padding: 6px 8px;
+  min-height: 34px;
+}
+.btn--plain:hover { color: var(--cocoa-800); }
+
+/* daftar periksa izin kamera */
+#cam-check-list li { margin-bottom: 4px; }
+#cam-check-list li .small { margin-top: 1px; }
+
+/* ==========================================================================
+   SALJU BERGESER DI LAYAR UNDIAN (canvas)
+   Lapisan ini di atas latar tema tapi di bawah digit/pemenang agar angka
+   undian tetap terbaca jelas dari jarak jauh.
+   ========================================================================== */
+.snowfall {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 2;
+}
+/* pada halaman undian, titik salju CSS dibuat lebih terang agar terlihat
+   di latar hijau-cokelat gelap */
+body.screen .snow {
+  opacity: .5;
+  z-index: 1;
+}
+body.screen .screen-grid,
+body.screen .wrap { position: relative; z-index: 5; }
+
+@media print {
+  .snowfall { display: none !important; }
+}
+
 /* --- khusus halaman pratinjau --- */
 .demo-nav { position: sticky; top: 0; z-index: 50; display: flex; gap: 6px; flex-wrap: wrap;
   padding: 10px 14px; background: rgba(53,32,22,.96); border-bottom: 3px solid #83322D; }
@@ -1050,6 +1281,8 @@ body.screen {
     radial-gradient(760px 460px at 98% 96%, rgba(85,61,41,.6) 0%, transparent 60%),
     linear-gradient(170deg, #2E3516 0%, #241A12 55%, #1B120C 100%); }
 .digit-demo { font-size: clamp(3.4rem, 12vw, 7rem); }
+.snow-demo { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; }
+.screen-demo > *:not(.snow-demo) { position: relative; z-index: 3; }
 </style>
 </head>
 <body>
@@ -1102,6 +1335,47 @@ body.screen {
       </div>
 
       <div class="demo-phone stack">
+        <div class="card card--ribbon stack">
+          <div class="participant-hero" style="padding:0">
+            <div class="participant-hero__orn" aria-hidden="true">🎄</div>
+            <h1 style="color:var(--cocoa-800)">Undangan Anda</h1>
+            <p style="color:var(--ink-soft)">dari Divisi TI</p>
+          </div>
+          <label class="field"><span class="label">Nama lengkap</span>
+            <div class="input" style="font-weight:700">Budi Santoso</div></label>
+          <label class="field"><span class="label">Jumlah anggota keluarga yang ikut</span>
+            <select class="select" disabled>
+              <option>Tidak membawa keluarga</option>
+              <option>1 orang</option>
+              <option selected>2 orang</option>
+              <option>3 orang</option>
+              <option>4 orang</option>
+              <option>5 orang (maksimal)</option>
+            </select>
+            <span class="hint">Cukup pilih jumlahnya. Isi nama bila ingin dicatat (opsional).</span></label>
+          <div class="field">
+            <span class="label">Nama anggota keluarga (opsional)</span>
+            <input class="input" value="Yosef" readonly>
+            <input class="input" value="Maria" readonly style="margin-top:8px">
+          </div>
+          <fieldset class="check-card">
+            <legend class="check-card__legend">Ambil di meja registrasi</legend>
+            <label class="check-row">
+              <input type="checkbox" checked disabled>
+              <span class="check-row__box" aria-hidden="true">🍱</span>
+              <span class="check-row__text"><strong>Kupon Makan</strong>
+                <span>Termasuk anggota keluarga yang ikut</span></span>
+            </label>
+            <label class="check-row">
+              <input type="checkbox" disabled>
+              <span class="check-row__box" aria-hidden="true">🎁</span>
+              <span class="check-row__text"><strong>Souvenir</strong>
+                <span>Satu souvenir untuk setiap peserta yang hadir</span></span>
+            </label>
+          </fieldset>
+          <button class="btn btn--red btn--xl btn--block">Konfirmasi Hadir</button>
+        </div>
+
         <div class="card stack">
           <div class="participant-hero" style="padding:0">
             <div class="participant-hero__orn" aria-hidden="true">✅</div>
@@ -1177,6 +1451,31 @@ body.screen {
         <div class="notice notice--dark small">
           <span class="notice__icon" aria-hidden="true">📡</span>
           <div>Offline. Semua catatan disimpan di HP ini dan akan dikirim saat sinyal kembali.</div>
+        </div>
+
+        <!-- banner pasang aplikasi (PWA) -->
+        <div class="install-banner">
+          <div class="install-banner__icon" aria-hidden="true">📲</div>
+          <div class="install-banner__body">
+            <strong>Pasang sebagai aplikasi</strong>
+            <span class="small">Agar kamera &amp; data offline bekerja paling andal.</span>
+          </div>
+          <button class="btn btn--gold btn--sm">Pasang</button>
+        </div>
+
+        <!-- diagnosa izin kamera -->
+        <div class="card card--flat" style="padding:12px 14px">
+          <strong class="small" style="color:var(--cocoa-800)">🔍 Periksa izin kamera</strong>
+          <ul class="small" id="cam-check-list" style="margin:8px 0 0;padding-left:18px;line-height:1.6">
+            <li style="color:var(--olive-700)">✅ Alamat HTTPS (wajib untuk kamera)</li>
+            <li style="color:var(--olive-700)">✅ Berjalan sebagai aplikasi terpasang</li>
+            <li style="color:var(--olive-700)">✅ Izin kamera: DIIZINKAN</li>
+            <li style="color:var(--olive-700)">✅ Peramban: Chrome · Android</li>
+          </ul>
+          <div class="row" style="gap:8px;margin-top:10px;flex-wrap:wrap">
+            <button class="btn btn--outline btn--sm">Uji kamera</button>
+            <button class="btn btn--outline btn--sm">Cara pasang aplikasi (Android)</button>
+          </div>
         </div>
       </div>
 
@@ -1371,6 +1670,7 @@ body.screen {
   <section class="demo-block" id="undian">
     <div class="demo-label">Layar undian — untuk proyektor</div>
     <div class="screen-demo">
+      <canvas class="snow-demo" id="snow-demo" aria-hidden="true"></canvas>
       <div class="center">
         <h2 class="screen-title">Perayaan Natal 2026</h2>
         <div class="screen-prize">Kulkas 2 Pintu</div>
@@ -1405,96 +1705,137 @@ body.screen {
 
   <!-- ================= 5. KARTU UNDANGAN ================= -->
   <section class="demo-block" id="kartu">
-    <div class="demo-label">Kartu undangan cetak A4 (±12 per halaman)</div>
-    <div class="inv-sheet">
+    <div class="demo-label">Kartu undangan cetak · 4 kartu per lembar A4 (kartu 9,5 × 14,25 cm)</div>
+    <div class="inv-sheet inv-sheet--a4-4">
       
-      <div class="inv-card">
-        <div class="inv-card__head">Perayaan Natal 2026</div>
-        <div class="inv-card__body">
-          <div class="inv-card__qr">
-            <div style="width:26mm;height:26mm;background:
-              repeating-conic-gradient(#000 0 25%, #fff 0 50%) 0 0/6mm 6mm;border:1mm solid #fff"></div>
+      <div class="card15">
+        <div class="card15__inner">
+          <div class="card15__rule"></div>
+          <div class="card15__head">
+            <div class="card15__star" aria-hidden="true">✦</div>
+            <div class="card15__event">Perayaan Natal 2026</div>
+            <div class="card15__org">GBI Jalan Kemuliaan · Medan</div>
           </div>
-          <div class="inv-card__info">
-            <div class="inv-card__name">Budi Santoso</div>
-            <div class="inv-card__org">Divisi TI</div>
+          <div class="card15__body">
+            <div class="card15__qr">
+              <div style="width:100%;height:100%;background:
+                repeating-conic-gradient(#352016 0 25%, #fff 0 50%) 0 0/3mm 3mm"></div>
+            </div>
+            <div class="card15__info">
+              <div class="card15__label">Kepada</div>
+              <div class="card15__name">Budi Santoso</div>
+              <div class="card15__sub">Divisi TI</div>
+            </div>
+          </div>
+          <div class="card15__meta">
+            <div><span>Waktu</span><strong>Kamis, 24 Desember 2026 · 18.00 WIB</strong></div>
+            <div><span>Tempat</span><strong>Gedung Elim, Jl. Gatot Subroto No. 12</strong></div>
+          </div>
+          <div class="card15__foot">
+            <div class="cut" aria-hidden="true">✂</div>
+            <div class="card15__tips">Pindai QR untuk konfirmasi kehadiran.<br>
+              Nomor undian muncul setelah pindai.</div>
+            <div class="card15__no">01/4</div>
           </div>
         </div>
-        <div class="inv-card__foot">Pindai QR untuk konfirmasi kehadiran.<br>Nomor undian muncul setelah scan.</div>
       </div>
-      <div class="inv-card">
-        <div class="inv-card__head">Perayaan Natal 2026</div>
-        <div class="inv-card__body">
-          <div class="inv-card__qr">
-            <div style="width:26mm;height:26mm;background:
-              repeating-conic-gradient(#000 0 25%, #fff 0 50%) 0 0/6mm 6mm;border:1mm solid #fff"></div>
+      <div class="card15">
+        <div class="card15__inner">
+          <div class="card15__rule"></div>
+          <div class="card15__head">
+            <div class="card15__star" aria-hidden="true">✦</div>
+            <div class="card15__event">Perayaan Natal 2026</div>
+            <div class="card15__org">GBI Jalan Kemuliaan · Medan</div>
           </div>
-          <div class="inv-card__info">
-            <div class="inv-card__name">Siti Aminah</div>
-            <div class="inv-card__org">Keuangan</div>
+          <div class="card15__body">
+            <div class="card15__qr">
+              <div style="width:100%;height:100%;background:
+                repeating-conic-gradient(#352016 0 25%, #fff 0 50%) 0 0/3mm 3mm"></div>
+            </div>
+            <div class="card15__info">
+              <div class="card15__label">Kepada</div>
+              <div class="card15__name">Siti Aminah</div>
+              <div class="card15__sub">Keuangan</div>
+            </div>
+          </div>
+          <div class="card15__meta">
+            <div><span>Waktu</span><strong>Kamis, 24 Desember 2026 · 18.00 WIB</strong></div>
+            <div><span>Tempat</span><strong>Gedung Elim, Jl. Gatot Subroto No. 12</strong></div>
+          </div>
+          <div class="card15__foot">
+            <div class="cut" aria-hidden="true">✂</div>
+            <div class="card15__tips">Pindai QR untuk konfirmasi kehadiran.<br>
+              Nomor undian muncul setelah pindai.</div>
+            <div class="card15__no">02/4</div>
           </div>
         </div>
-        <div class="inv-card__foot">Pindai QR untuk konfirmasi kehadiran.<br>Nomor undian muncul setelah scan.</div>
       </div>
-      <div class="inv-card">
-        <div class="inv-card__head">Perayaan Natal 2026</div>
-        <div class="inv-card__body">
-          <div class="inv-card__qr">
-            <div style="width:26mm;height:26mm;background:
-              repeating-conic-gradient(#000 0 25%, #fff 0 50%) 0 0/6mm 6mm;border:1mm solid #fff"></div>
+      <div class="card15">
+        <div class="card15__inner">
+          <div class="card15__rule"></div>
+          <div class="card15__head">
+            <div class="card15__star" aria-hidden="true">✦</div>
+            <div class="card15__event">Perayaan Natal 2026</div>
+            <div class="card15__org">GBI Jalan Kemuliaan · Medan</div>
           </div>
-          <div class="inv-card__info">
-            <div class="inv-card__name">Yohanes Sinaga</div>
-            <div class="inv-card__org">Wilayah Medan Kota</div>
+          <div class="card15__body">
+            <div class="card15__qr">
+              <div style="width:100%;height:100%;background:
+                repeating-conic-gradient(#352016 0 25%, #fff 0 50%) 0 0/3mm 3mm"></div>
+            </div>
+            <div class="card15__info">
+              <div class="card15__label">Kepada</div>
+              <div class="card15__name">Yohanes Sinaga</div>
+              <div class="card15__sub">Wilayah Medan Kota</div>
+            </div>
+          </div>
+          <div class="card15__meta">
+            <div><span>Waktu</span><strong>Kamis, 24 Desember 2026 · 18.00 WIB</strong></div>
+            <div><span>Tempat</span><strong>Gedung Elim, Jl. Gatot Subroto No. 12</strong></div>
+          </div>
+          <div class="card15__foot">
+            <div class="cut" aria-hidden="true">✂</div>
+            <div class="card15__tips">Pindai QR untuk konfirmasi kehadiran.<br>
+              Nomor undian muncul setelah pindai.</div>
+            <div class="card15__no">03/4</div>
           </div>
         </div>
-        <div class="inv-card__foot">Pindai QR untuk konfirmasi kehadiran.<br>Nomor undian muncul setelah scan.</div>
       </div>
-      <div class="inv-card">
-        <div class="inv-card__head">Perayaan Natal 2026</div>
-        <div class="inv-card__body">
-          <div class="inv-card__qr">
-            <div style="width:26mm;height:26mm;background:
-              repeating-conic-gradient(#000 0 25%, #fff 0 50%) 0 0/6mm 6mm;border:1mm solid #fff"></div>
+      <div class="card15">
+        <div class="card15__inner">
+          <div class="card15__rule"></div>
+          <div class="card15__head">
+            <div class="card15__star" aria-hidden="true">✦</div>
+            <div class="card15__event">Perayaan Natal 2026</div>
+            <div class="card15__org">GBI Jalan Kemuliaan · Medan</div>
           </div>
-          <div class="inv-card__info">
-            <div class="inv-card__name">Maria Sinaga</div>
-            <div class="inv-card__org">Wilayah Medan Kota</div>
+          <div class="card15__body">
+            <div class="card15__qr">
+              <div style="width:100%;height:100%;background:
+                repeating-conic-gradient(#352016 0 25%, #fff 0 50%) 0 0/3mm 3mm"></div>
+            </div>
+            <div class="card15__info">
+              <div class="card15__label">Kepada</div>
+              <div class="card15__name">Maria Sinaga</div>
+              <div class="card15__sub">Wilayah Medan Kota</div>
+            </div>
           </div>
-        </div>
-        <div class="inv-card__foot">Pindai QR untuk konfirmasi kehadiran.<br>Nomor undian muncul setelah scan.</div>
-      </div>
-      <div class="inv-card">
-        <div class="inv-card__head">Perayaan Natal 2026</div>
-        <div class="inv-card__body">
-          <div class="inv-card__qr">
-            <div style="width:26mm;height:26mm;background:
-              repeating-conic-gradient(#000 0 25%, #fff 0 50%) 0 0/6mm 6mm;border:1mm solid #fff"></div>
+          <div class="card15__meta">
+            <div><span>Waktu</span><strong>Kamis, 24 Desember 2026 · 18.00 WIB</strong></div>
+            <div><span>Tempat</span><strong>Gedung Elim, Jl. Gatot Subroto No. 12</strong></div>
           </div>
-          <div class="inv-card__info">
-            <div class="inv-card__name">Andreas Tobing</div>
-            <div class="inv-card__org">Pemuda</div>
-          </div>
-        </div>
-        <div class="inv-card__foot">Pindai QR untuk konfirmasi kehadiran.<br>Nomor undian muncul setelah scan.</div>
-      </div>
-      <div class="inv-card">
-        <div class="inv-card__head">Perayaan Natal 2026</div>
-        <div class="inv-card__body">
-          <div class="inv-card__qr">
-            <div style="width:26mm;height:26mm;background:
-              repeating-conic-gradient(#000 0 25%, #fff 0 50%) 0 0/6mm 6mm;border:1mm solid #fff"></div>
-          </div>
-          <div class="inv-card__info">
-            <div class="inv-card__name">Rudi Hartono</div>
-            <div class="inv-card__org">Umum</div>
+          <div class="card15__foot">
+            <div class="cut" aria-hidden="true">✂</div>
+            <div class="card15__tips">Pindai QR untuk konfirmasi kehadiran.<br>
+              Nomor undian muncul setelah pindai.</div>
+            <div class="card15__no">04/4</div>
           </div>
         </div>
-        <div class="inv-card__foot">Pindai QR untuk konfirmasi kehadiran.<br>Nomor undian muncul setelah scan.</div>
       </div>
     </div>
     <p class="small center" style="color:var(--ink-soft);margin-top:10px">
-      (Pola kotak pada pratinjau ini hanya pengganti QR asli.)
+      Ukuran kartu 1:1 (100 × 150 mm). Pola kotak pada pratinjau ini hanya pengganti QR asli —
+      di panel admin QR-nya asli per tamu, dan ada tombol <strong>Pratinjau siap cetak 10×15</strong>.
     </p>
   </section>
 
@@ -1502,5 +1843,58 @@ body.screen {
     Pratinjau desain · dibuat otomatis oleh tools/make-demo.mjs
   </footer>
 </main>
+<script>
+/* Salju pratinjau — meniru salju di layar undian (js/undian.js) */
+(function () {
+  var c = document.getElementById('snow-demo');
+  if (!c || !c.getContext) return;
+  var ctx = c.getContext('2d');
+  var dpr = Math.min(window.devicePixelRatio || 1, 2);
+  var w = 0, h = 0, butir = [], kurangi = false;
+  try { kurangi = window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) {}
+
+  function ukuran() {
+    var r = c.parentElement.getBoundingClientRect();
+    w = Math.max(1, Math.round(r.width)); h = Math.max(1, Math.round(r.height));
+    c.width = w * dpr; c.height = h * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  function baru(awal) {
+    var r = 1.1 + Math.random() * 2.9;
+    return { x: Math.random() * w, y: awal ? Math.random() * h : -10 - Math.random() * 40,
+      r: r, v: 0.25 + r * 0.22 + Math.random() * 0.35,
+      ayun: 0.4 + Math.random() * 1.2, fase: Math.random() * 6.28,
+      o: 0.35 + Math.random() * 0.5 };
+  }
+  function isi() {
+    var n = Math.round(Math.min(220, Math.max(30, (w * h) / 9000)));
+    butir = []; for (var i = 0; i < n; i++) butir.push(baru(true));
+  }
+  function gambar() {
+    ctx.clearRect(0, 0, w, h);
+    for (var i = 0; i < butir.length; i++) {
+      var b = butir[i];
+      ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, 6.2832);
+      ctx.fillStyle = 'rgba(255,252,244,' + b.o + ')'; ctx.fill();
+      if (b.r > 2.6) { ctx.beginPath();
+        ctx.arc(b.x - b.r * 0.25, b.y - b.r * 0.25, b.r * 0.34, 0, 6.2832);
+        ctx.fillStyle = 'rgba(255,255,255,.85)'; ctx.fill(); }
+    }
+  }
+  function langkah(t) {
+    for (var i = 0; i < butir.length; i++) {
+      var b = butir[i];
+      if (!kurangi) { b.y += b.v; b.x += Math.sin(t / 1000 * b.ayun + b.fase) * 0.35; }
+      if (b.y - b.r > h + 4) { var nb = baru(false); b.x = nb.x; b.y = nb.y; b.r = nb.r; b.v = nb.v;
+        b.ayun = nb.ayun; b.fase = nb.fase; b.o = nb.o; }
+    }
+    gambar();
+    requestAnimationFrame(langkah);
+  }
+  ukuran(); isi(); gambar();
+  if (!kurangi) requestAnimationFrame(langkah);
+  window.addEventListener('resize', function () { ukuran(); isi(); gambar(); });
+})();
+</script>
 </body>
 </html>

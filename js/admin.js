@@ -10,7 +10,23 @@ import {
 } from '../util.js';
 import { qrPngDataUrl, qrPngBase64 } from '../qr.js';
 
-const K = { pin: 'admin_pin', domain: 'admin_domain', tab: 'admin_tab' };
+const K = { pin: 'admin_pin', domain: 'admin_domain', tab: 'admin_tab',
+  cardWhen: 'card_when', cardPlace: 'card_place', cardLayout: 'card_layout' };
+
+/* Susunan cetak kartu: 4/A4 (kartu 95%), 2/A4 & 4/A3 (kartu 100% = 10x15 cm) */
+const CARD_LAYOUTS = {
+  'a4-4': { perPage: 4, kelas: 'inv-sheet--a4-4', kertas: 'A4', ukuran: '9,5 × 14,25 cm',
+    hint: '1 lembar A4 = 4 kartu (2 × 2). Kartu diskalakan 95% agar muat tanpa tumpang.' },
+  'a4-2': { perPage: 2, kelas: 'inv-sheet--a4-2', kertas: 'A4', ukuran: '10 × 15 cm',
+    hint: '1 lembar A4 = 2 kartu. Ukuran kartu tepat 10 × 15 cm.' },
+  'a3-4': { perPage: 4, kelas: 'inv-sheet--a3-4', kertas: 'A3', ukuran: '10 × 15 cm',
+    hint: '1 lembar A3 = 4 kartu. Ukuran kartu tepat 10 × 15 cm.' }
+};
+
+function currentLayout() {
+  const key = document.getElementById('card-layout')?.value || store.get(K.cardLayout, 'a4-4');
+  return CARD_LAYOUTS[key] ? key : 'a4-4';
+}
 
 const S = {
   pin: '',
@@ -78,6 +94,7 @@ async function enterApp() {
   await reload(true);
   startAutoRefresh();
   switchTab(store.get(K.tab, 'rekap'), false);
+  ensureCards();
 
   const domain = store.get(K.domain, '');
   const input = document.getElementById('domain-input');
@@ -485,24 +502,138 @@ async function downloadQrZip(btn) {
   });
 }
 
+/** Info acara yang dicetak di kartu (diingat di perangkat ini). */
+function cardEventInfo() {
+  const name = S.data.event_name || 'Perayaan Natal';
+  const when = (document.getElementById('card-when')?.value || '').trim();
+  const place = (document.getElementById('card-place')?.value || '').trim();
+  return { name, when, place, org: S.data.event_org || '' };
+}
+
+/**
+ * Kartu undangan 10 x 15 cm, pratinjau langsung dari data asli.
+ * Susunan cetak: 4/A4 (kartu 95%), 2/A4 atau 4/A3 (kartu tepat 10x15 cm).
+ */
 function buildCards() {
-  const limitSel = document.getElementById('card-limit').value;
-  const people = limitSel === 'all' ? S.data.participants : S.data.participants.slice(0, Number(limitSel));
+  const limitSel = document.getElementById('card-limit')?.value || '16';
+  const people = limitSel === 'all'
+    ? S.data.participants
+    : S.data.participants.slice(0, Number(limitSel));
   const sheet = document.getElementById('inv-sheet');
-  const eventName = S.data.event_name || 'Perayaan Natal';
-  sheet.innerHTML = people.map((p) => `
-    <div class="inv-card">
-      <div class="inv-card__head">${esc(eventName)}</div>
-      <div class="inv-card__body">
-        <div class="inv-card__qr"><img alt="QR ${esc(p.name)}" src="${qrPngDataUrl(inviteUrl(p.token), { size: 240, margin: 1 })}"></div>
-        <div class="inv-card__info">
-          <div class="inv-card__name">${esc(p.name)}</div>
-          <div class="inv-card__org">${esc(p.org || '')}</div>
+  const info = cardEventInfo();
+  const layoutKey = currentLayout();
+  const layout = CARD_LAYOUTS[layoutKey];
+
+  // kelas susunan pada wadah (dipakai juga saat dicetak)
+  sheet.className = `inv-sheet ${layout.kelas}`;
+  const hint = document.getElementById('card-layout-hint');
+  if (hint) hint.textContent = layout.hint;
+  const sizeNote = document.getElementById('card-size-note');
+  if (sizeNote) sizeNote.textContent = `${layout.kertas} = ${layout.perPage} kartu (${layout.ukuran})`;
+
+  if (!people.length) {
+    sheet.innerHTML = '<p style="color:var(--ink-soft);padding:12px">Belum ada peserta. Import undangan dulu.</p>';
+    return;
+  }
+
+  const cardHtml = (p, i) => `
+    <div class="card15">
+      <div class="card15__inner">
+        <div class="card15__rule"></div>
+        <div class="card15__head">
+          <div class="card15__star" aria-hidden="true">✦</div>
+          <div class="card15__event">${esc(info.name)}</div>
+          ${info.org ? `<div class="card15__org">${esc(info.org)}</div>` : ''}
+        </div>
+        <div class="card15__body">
+          <div class="card15__qr">
+            <img alt="QR undangan ${esc(p.name)}"
+                 src="${qrPngDataUrl(inviteUrl(p.token), { size: 480, margin: 1 })}">
+          </div>
+          <div class="card15__info">
+            <div class="card15__label">Kepada</div>
+            <div class="card15__name">${esc(p.name)}</div>
+            <div class="card15__sub">${esc(p.org || '')}</div>
+          </div>
+        </div>
+        ${info.when || info.place ? `<div class="card15__meta">
+          ${info.when ? `<div><span>Waktu</span><strong>${esc(info.when)}</strong></div>` : ''}
+          ${info.place ? `<div><span>Tempat</span><strong>${esc(info.place)}</strong></div>` : ''}
+        </div>` : ''}
+        <div class="card15__foot">
+          <div class="cut" aria-hidden="true">✂</div>
+          <div class="card15__tips">Pindai QR untuk konfirmasi kehadiran.<br>
+            Nomor undian muncul setelah pindai.</div>
+          <div class="card15__no">${String(i + 1).padStart(2, '0')}/${people.length}</div>
         </div>
       </div>
-      <div class="inv-card__foot">Pindai QR untuk konfirmasi kehadiran.<br>Nomor undian muncul setelah scan.</div>
-    </div>`).join('');
-  if (!people.length) sheet.innerHTML = '<p style="color:#4a6157;padding:12px">Belum ada peserta.</p>';
+    </div>`;
+
+  // pecah menjadi lembaran (4 kartu/A4, 2 kartu/A4, atau 4 kartu/A3)
+  const pages = [];
+  for (let i = 0; i < people.length; i += layout.perPage) pages.push(people.slice(i, i + layout.perPage));
+  sheet.innerHTML = pages.map((group, pi) => `
+    <section class="page" aria-label="Lembar ${pi + 1}">
+      <span class="page__tag">${layout.kertas} · lembar ${pi + 1}/${pages.length}</span>
+      ${group.map((p, k) => cardHtml(p, pi * layout.perPage + k)).join('')}
+    </section>`).join('');
+
+  const count = document.getElementById('card-count');
+  if (count) {
+    count.textContent = `${people.length} kartu · ${pages.length} lembar ${layout.kertas}`
+      + ` (${layout.perPage} kartu/lembar, ${layout.ukuran})`;
+  }
+}
+
+/** Buka pratinjau kartu di tab baru (ukuran 1:1, siap dikirim ke percetakan). */
+function previewCards() {
+  if (!S.data.participants.length) { toast('Belum ada peserta. Import undangan dulu.', 'warn'); return; }
+  buildCards();
+  const info = cardEventInfo();
+  const cardsHtml = document.getElementById('inv-sheet').innerHTML;
+  const css = [...document.styleSheets]
+    .map((sh) => { try { return [...sh.cssRules].map((r) => r.cssText).join('\n'); } catch { return ''; } })
+    .join('\n');
+
+  const layoutKey = currentLayout();
+  const layout = CARD_LAYOUTS[layoutKey];
+  const pageSize = layout.kertas === 'A3' ? 'A3' : 'A4';
+  const html = `<!doctype html><html lang="id"><head><meta charset="utf-8">
+<title>Kartu Undangan ${layout.ukuran} — ${esc(info.name)}</title>
+<style>${css}
+  @page { size: ${pageSize}; margin: 0; }
+  body { background: #fff; }
+  .cetak-info { max-width: 1200px; margin: 14px auto; padding: 10px 14px; border: 1px solid var(--kraft-300);
+    border-radius: 10px; background: var(--kraft-50); font-size: .82rem; color: var(--ink-soft); }
+  .cetak-info strong { color: var(--cocoa-800); }
+  @media print { .cetak-info { display: none; } }
+</style></head><body>
+<div class="cetak-info">
+  <strong>Susunan:</strong> <strong>${layout.perPage} kartu per lembar ${layout.kertas}</strong>,
+  ukuran kartu <strong>${layout.ukuran}</strong>.
+  <strong>Cara cetak:</strong> pilih kertas <strong>${layout.kertas}</strong>, skala <strong>100%</strong>
+  (bukan “Fit to page”), margin <strong>None</strong>, matikan header–footer.
+  ${layoutKey === 'a4-4'
+    ? 'Kartu 9,5 × 14,25 cm dipotong di garis potong; kalau butuh tepat 10 × 15 cm pilih susunan '
+      + '<em>2 kartu/A4</em> atau <em>4 kartu/A3</em>.'
+    : 'Setiap kartu tepat <strong>10 × 15 cm</strong>.'}
+</div>
+<div class="inv-sheet ${layout.kelas}">${cardsHtml}</div>
+<script>window.addEventListener('load', () => setTimeout(() => window.print(), 250));<\/script>
+</body></html>`;
+
+  const w = window.open('', '_blank');
+  if (!w) {
+    // popup diblokir: unduh sebagai berkas .html yang bisa dibuka & dicetak
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    saveBlob(blob, `kartu-undangan-10x15-${new Date().toISOString().slice(0, 10)}.html`)
+      .then(() => toast('Popup diblokir — berkas cetak diunduh. Buka lalu Ctrl/Cmd + P.', 'warn', 6000))
+      .catch(() => toast('Peramban memblokir popup dan unduhan.', 'err'));
+    return;
+  }
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
 }
 
 function exportLinksXlsx(btn) {
@@ -927,6 +1058,13 @@ async function deletePerson(id) {
 }
 
 /* ================================================================== tabs */
+/** Isi pratinjau kartu sekali bila belum ada (dipanggil setelah data termuat). */
+function ensureCards() {
+  const sheet = document.getElementById('inv-sheet');
+  if (!sheet || !S.data.participants.length) return;
+  if (!sheet.querySelector('.card15')) buildCards();
+}
+
 function switchTab(tab, remember = true) {
   const map = { rekap: 'panel-rekap', undangan: 'panel-undangan', hadiah: 'panel-hadiah', setting: 'panel-setting' };
   for (const [key, id] of Object.entries(map)) {
@@ -995,10 +1133,22 @@ function bind() {
     if (f) handleFile(f);
   });
   document.getElementById('btn-qr-zip')?.addEventListener('click', (e) => downloadQrZip(e.currentTarget));
-  document.getElementById('btn-print-cards')?.addEventListener('click', () => {
-    buildCards();
-    setTimeout(() => window.print(), 260);
-  });
+  document.getElementById('btn-print-cards')?.addEventListener('click', previewCards);
+  document.getElementById('btn-preview-cards')?.addEventListener('click', previewCards);
+  const layoutEl = document.getElementById('card-layout');
+  if (layoutEl) {
+    layoutEl.value = store.get(K.cardLayout, 'a4-4');
+    layoutEl.addEventListener('change', () => {
+      store.set(K.cardLayout, layoutEl.value);
+      buildCards();
+    });
+  }
+  for (const [id, key] of [['card-when', K.cardWhen], ['card-place', K.cardPlace]]) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    el.value = store.get(key, '');
+    el.addEventListener('change', () => { store.set(key, el.value.trim()); buildCards(); });
+  }
   document.getElementById('btn-links-xlsx')?.addEventListener('click', exportLinksXlsx);
   document.getElementById('btn-general-qr')?.addEventListener('click', showGeneralQr);
   document.getElementById('btn-build-cards')?.addEventListener('click', buildCards);

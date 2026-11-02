@@ -22,6 +22,7 @@ const K = {
 
 const cfg = () => window.APP_CONFIG || {};
 const S = {
+  installEvent: null,
   pin: '',
   people: [],        // daftar peserta lokal
   queue: [],         // antrean aksi belum tersinkron
@@ -259,6 +260,153 @@ function takeBlockNumber() {
     }
   }
   return null;
+}
+
+/* ================================================ pemasangan (PWA) */
+const INSTALL_DISMISS = 'staff_install_dismiss';
+
+/** Aplikasi berjalan sebagai PWA terpasang? */
+function isStandalone() {
+  return window.matchMedia?.('(display-mode: standalone)').matches ||
+    window.matchMedia?.('(display-mode: fullscreen)').matches ||
+    window.navigator.standalone === true;
+}
+
+function isIos() {
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+
+/** Tampilkan banner pasang aplikasi bila relevan. */
+function setupInstallBanner() {
+  const banner = document.getElementById('install-banner');
+  const text = document.getElementById('install-banner-text');
+  if (!banner) return;
+
+  // ambil ajakan pemasangan yang mungkin sudah terpicu sebelum skrip ini jalan
+  if (!S.installEvent && window.__installPrompt) S.installEvent = window.__installPrompt;
+
+  if (isStandalone()) { banner.classList.add('hidden'); return; }
+  if (store.get(INSTALL_DISMISS, false)) return;
+
+  // iOS tidak punya event beforeinstallprompt: beri instruksi manual
+  if (isIos() && !S.installEvent) {
+    text.textContent = 'iPhone: ketuk Bagikan (⬆️) → “Tambah ke Layar Utama”.';
+    banner.classList.remove('hidden');
+    return;
+  }
+
+  // Android/desktop: tunggu event (sudah ditangkap di awal skrip)
+  if (S.installEvent) { banner.classList.remove('hidden'); }
+}
+
+function bindInstall() {
+  document.getElementById('btn-install-close')?.addEventListener('click', () => {
+    store.set(INSTALL_DISMISS, true);
+    document.getElementById('install-banner')?.classList.add('hidden');
+  });
+
+  document.getElementById('btn-install-app')?.addEventListener('click', async () => {
+    if (S.installEvent) {
+      // dialog pemasangan bawaan browser
+      S.installEvent.prompt();
+      try { await S.installEvent.userChoice; } catch { /* diabaikan */ }
+      S.installEvent = null;
+      document.getElementById('install-banner')?.classList.add('hidden');
+      return;
+    }
+    // tanpa event: tampilkan petunjuk manual
+    if (isIos()) {
+      toast('iPhone: ketuk Bagikan (⬆️) lalu “Tambah ke Layar Utama”.', 'warn', 7000);
+    } else {
+      toast('Buka menu browser (⋮) → “Pasang aplikasi” / “Tambahkan ke Layar utama”.', 'warn', 7000);
+    }
+  });
+}
+
+/* ====================================== diagnosa izin & uji kamera */
+async function refreshCameraChecks() {
+  const list = document.getElementById('cam-check-list');
+  if (!list) return;
+
+  const rows = [];
+  const tambah = (ok, teks, saran) => rows.push({ ok, teks, saran });
+
+  tambah(window.isSecureContext, 'Alamat HTTPS (wajib untuk kamera)',
+    'Buka lewat https:// — kamera tidak bisa dipakai pada http://.');
+
+  const standalone = isStandalone();
+  tambah(standalone, standalone ? 'Berjalan sebagai aplikasi terpasang' : 'Berjalan di tab browser',
+    standalone ? '' : 'Pasang aplikasi lewat banner di atas agar izin kamera tersimpan permanen.');
+
+  tambah(Boolean(navigator.mediaDevices?.getUserMedia), 'API kamera tersedia di perangkat',
+    'Peramban ini tidak mendukung kamera. Gunakan Chrome atau Safari terbaru.');
+
+  // status izin (bila peramban mendukung Permissions API)
+  let status = 'tidak diketahui';
+  try {
+    if (navigator.permissions?.query) {
+      const p = await navigator.permissions.query({ name: 'camera' });
+      status = p.state; // 'granted' | 'denied' | 'prompt'
+    }
+  } catch { /* Firefox/Safari lama: diabaikan */ }
+  const map = { granted: 'DIIZINKAN', denied: 'DITOLAK', prompt: 'BELUM DIMINTA' };
+  tambah(status !== 'denied',
+    `Izin kamera: ${map[status] || status}`,
+    status === 'denied'
+      ? 'Buka pengaturan situs di browser → Kamera → Izinkan, lalu muat ulang.'
+      : status === 'prompt'
+        ? 'Tekan “Uji kamera” untuk memunculkan dialog izin.'
+        : '');
+
+  // info peramban untuk laporan
+  const ua = navigator.userAgent;
+  const browser = /EdgA?\//.test(ua) ? 'Edge'
+    : /SamsungBrowser/.test(ua) ? 'Samsung Internet'
+    : /Firefox/.test(ua) ? 'Firefox'
+    : /CriOS|Chrome/.test(ua) ? 'Chrome'
+    : /Safari/.test(ua) ? 'Safari' : 'Peramban lain';
+  tambah(true, `Peramban: ${browser} · ${isIos() ? 'iOS' : /Android/.test(ua) ? 'Android' : 'desktop'}`, '');
+
+  list.innerHTML = rows.map((r) => `
+    <li style="color:${r.ok ? 'var(--olive-700)' : 'var(--cran-800)'}">
+      ${r.ok ? '✅' : '⚠️'} ${esc(r.teks)}
+      ${r.saran ? `<div class="small" style="color:var(--ink-soft)">${esc(r.saran)}</div>` : ''}
+    </li>`).join('');
+}
+
+/** Minta izin kamera langsung (dipicu sentuhan pengguna). */
+async function testCamera() {
+  const out = document.getElementById('cam-test-result');
+  if (!out) return;
+  out.textContent = 'Meminta izin kamera…';
+  if (!navigator.mediaDevices?.getUserMedia) {
+    out.textContent = 'Peramban tidak mendukung kamera (API tidak tersedia).';
+    return;
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+    // langsung hentikan: uji saja
+    stream.getTracks().forEach((t) => t.stop());
+    out.textContent = '✅ Kamera berhasil diakses. Izin sudah tersimpan — pemindaian QR siap dipakai.';
+    await refreshCameraChecks();
+  } catch (e) {
+    const msg = String(e?.name || e?.message || e);
+    out.textContent = /NotAllowed|Permission/i.test(msg)
+      ? '❌ Izin ditolak. Buka pengaturan situs di browser → Kamera → Izinkan, lalu muat ulang halaman.'
+      : /NotFound|DevicesNotFound|no camera/i.test(msg)
+        ? '❌ Kamera tidak terdeteksi pada perangkat ini.'
+        : `❌ Kamera gagal diminta (${msg.slice(0, 60)}).`;
+    await refreshCameraChecks();
+  }
+}
+
+function showInstallHelp(ios) {
+  if (ios) {
+    toast('iPhone/iPad: ketuk ikon Bagikan (⬆️) → “Tambah ke Layar Utama” → Tambah.', 'warn', 9000);
+  } else {
+    toast('Android/Chrome: menu ⋮ (kanan atas) → “Pasang aplikasi” atau “Tambahkan ke Layar utama”.', 'warn', 9000);
+  }
 }
 
 /* ========================================================= pemindaian */
@@ -773,6 +921,24 @@ function bind() {
   });
 
   document.getElementById('btn-ask-camera')?.addEventListener('click', () => startScanner());
+  bindInstall();
+  document.getElementById('btn-cam-test')?.addEventListener('click', testCamera);
+  document.getElementById('btn-cam-reinstall')?.addEventListener('click', () => showInstallHelp(false));
+  document.getElementById('btn-cam-reinstall-ios')?.addEventListener('click', () => showInstallHelp(true));
+  document.getElementById('cam-diagnose')?.addEventListener('toggle', (e) => {
+    if (e.target.open) refreshCameraChecks().catch(() => {});
+  });
+  // kamera baru boleh dipakai setelah pengguna menyentuh layar (aturan peramban)
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    S.installEvent = e;
+    setupInstallBanner();
+  });
+  window.addEventListener('appinstalled', () => {
+    S.installEvent = null;
+    document.getElementById('install-banner')?.classList.add('hidden');
+    toast('Aplikasi terpasang. Buka dari layar utama agar izin kamera tersimpan.', 'ok', 6000);
+  });
   document.getElementById('manual-scan-form')?.addEventListener('submit', (e) => {
     e.preventDefault();
     const input = document.getElementById('manual-token');
@@ -834,8 +1000,14 @@ async function main() {
     document.getElementById('pin-input').focus();
   }
 
+  const app = document.getElementById('view-app');
+  app.classList.remove('hidden');
+  setupInstallBanner();
+  refreshCameraChecks().catch(() => {});
+
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js').catch(() => { /* diabaikan */ });
+    navigator.serviceWorker.register('./sw.js').then(() => refreshCameraChecks().catch(() => {}))
+      .catch(() => { /* diabaikan */ });
   }
 }
 

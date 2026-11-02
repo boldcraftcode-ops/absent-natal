@@ -68,6 +68,8 @@ ${css}
     radial-gradient(760px 460px at 98% 96%, rgba(85,61,41,.6) 0%, transparent 60%),
     linear-gradient(170deg, #2E3516 0%, #241A12 55%, #1B120C 100%); }
 .digit-demo { font-size: clamp(3.4rem, 12vw, 7rem); }
+.snow-demo { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; }
+.screen-demo > *:not(.snow-demo) { position: relative; z-index: 3; }
 </style>
 </head>
 <body>
@@ -120,6 +122,47 @@ ${css}
       </div>
 
       <div class="demo-phone stack">
+        <div class="card card--ribbon stack">
+          <div class="participant-hero" style="padding:0">
+            <div class="participant-hero__orn" aria-hidden="true">🎄</div>
+            <h1 style="color:var(--cocoa-800)">Undangan Anda</h1>
+            <p style="color:var(--ink-soft)">dari Divisi TI</p>
+          </div>
+          <label class="field"><span class="label">Nama lengkap</span>
+            <div class="input" style="font-weight:700">Budi Santoso</div></label>
+          <label class="field"><span class="label">Jumlah anggota keluarga yang ikut</span>
+            <select class="select" disabled>
+              <option>Tidak membawa keluarga</option>
+              <option>1 orang</option>
+              <option selected>2 orang</option>
+              <option>3 orang</option>
+              <option>4 orang</option>
+              <option>5 orang (maksimal)</option>
+            </select>
+            <span class="hint">Cukup pilih jumlahnya. Isi nama bila ingin dicatat (opsional).</span></label>
+          <div class="field">
+            <span class="label">Nama anggota keluarga (opsional)</span>
+            <input class="input" value="Yosef" readonly>
+            <input class="input" value="Maria" readonly style="margin-top:8px">
+          </div>
+          <fieldset class="check-card">
+            <legend class="check-card__legend">Ambil di meja registrasi</legend>
+            <label class="check-row">
+              <input type="checkbox" checked disabled>
+              <span class="check-row__box" aria-hidden="true">🍱</span>
+              <span class="check-row__text"><strong>Kupon Makan</strong>
+                <span>Termasuk anggota keluarga yang ikut</span></span>
+            </label>
+            <label class="check-row">
+              <input type="checkbox" disabled>
+              <span class="check-row__box" aria-hidden="true">🎁</span>
+              <span class="check-row__text"><strong>Souvenir</strong>
+                <span>Satu souvenir untuk setiap peserta yang hadir</span></span>
+            </label>
+          </fieldset>
+          <button class="btn btn--red btn--xl btn--block">Konfirmasi Hadir</button>
+        </div>
+
         <div class="card stack">
           <div class="participant-hero" style="padding:0">
             <div class="participant-hero__orn" aria-hidden="true">✅</div>
@@ -195,6 +238,31 @@ ${css}
         <div class="notice notice--dark small">
           <span class="notice__icon" aria-hidden="true">📡</span>
           <div>Offline. Semua catatan disimpan di HP ini dan akan dikirim saat sinyal kembali.</div>
+        </div>
+
+        <!-- banner pasang aplikasi (PWA) -->
+        <div class="install-banner">
+          <div class="install-banner__icon" aria-hidden="true">📲</div>
+          <div class="install-banner__body">
+            <strong>Pasang sebagai aplikasi</strong>
+            <span class="small">Agar kamera &amp; data offline bekerja paling andal.</span>
+          </div>
+          <button class="btn btn--gold btn--sm">Pasang</button>
+        </div>
+
+        <!-- diagnosa izin kamera -->
+        <div class="card card--flat" style="padding:12px 14px">
+          <strong class="small" style="color:var(--cocoa-800)">🔍 Periksa izin kamera</strong>
+          <ul class="small" id="cam-check-list" style="margin:8px 0 0;padding-left:18px;line-height:1.6">
+            <li style="color:var(--olive-700)">✅ Alamat HTTPS (wajib untuk kamera)</li>
+            <li style="color:var(--olive-700)">✅ Berjalan sebagai aplikasi terpasang</li>
+            <li style="color:var(--olive-700)">✅ Izin kamera: DIIZINKAN</li>
+            <li style="color:var(--olive-700)">✅ Peramban: Chrome · Android</li>
+          </ul>
+          <div class="row" style="gap:8px;margin-top:10px;flex-wrap:wrap">
+            <button class="btn btn--outline btn--sm">Uji kamera</button>
+            <button class="btn btn--outline btn--sm">Cara pasang aplikasi (Android)</button>
+          </div>
         </div>
       </div>
 
@@ -284,6 +352,7 @@ ${css}
   <section class="demo-block" id="undian">
     <div class="demo-label">Layar undian — untuk proyektor</div>
     <div class="screen-demo">
+      <canvas class="snow-demo" id="snow-demo" aria-hidden="true"></canvas>
       <div class="center">
         <h2 class="screen-title">Perayaan Natal 2026</h2>
         <div class="screen-prize">Kulkas 2 Pintu</div>
@@ -318,26 +387,44 @@ ${css}
 
   <!-- ================= 5. KARTU UNDANGAN ================= -->
   <section class="demo-block" id="kartu">
-    <div class="demo-label">Kartu undangan cetak A4 (±12 per halaman)</div>
-    <div class="inv-sheet">
-      ${people.slice(0, 6).map(([name, org, , no]) => `
-      <div class="inv-card">
-        <div class="inv-card__head">Perayaan Natal 2026</div>
-        <div class="inv-card__body">
-          <div class="inv-card__qr">
-            <div style="width:26mm;height:26mm;background:
-              repeating-conic-gradient(#000 0 25%, #fff 0 50%) 0 0/6mm 6mm;border:1mm solid #fff"></div>
+    <div class="demo-label">Kartu undangan cetak · 4 kartu per lembar A4 (kartu 9,5 × 14,25 cm)</div>
+    <div class="inv-sheet inv-sheet--a4-4">
+      ${people.slice(0, 4).map(([name, org, , no], i) => `
+      <div class="card15">
+        <div class="card15__inner">
+          <div class="card15__rule"></div>
+          <div class="card15__head">
+            <div class="card15__star" aria-hidden="true">✦</div>
+            <div class="card15__event">Perayaan Natal 2026</div>
+            <div class="card15__org">GBI Jalan Kemuliaan · Medan</div>
           </div>
-          <div class="inv-card__info">
-            <div class="inv-card__name">${name}</div>
-            <div class="inv-card__org">${org}</div>
+          <div class="card15__body">
+            <div class="card15__qr">
+              <div style="width:100%;height:100%;background:
+                repeating-conic-gradient(#352016 0 25%, #fff 0 50%) 0 0/3mm 3mm"></div>
+            </div>
+            <div class="card15__info">
+              <div class="card15__label">Kepada</div>
+              <div class="card15__name">${name}</div>
+              <div class="card15__sub">${org}</div>
+            </div>
+          </div>
+          <div class="card15__meta">
+            <div><span>Waktu</span><strong>Kamis, 24 Desember 2026 · 18.00 WIB</strong></div>
+            <div><span>Tempat</span><strong>Gedung Elim, Jl. Gatot Subroto No. 12</strong></div>
+          </div>
+          <div class="card15__foot">
+            <div class="cut" aria-hidden="true">✂</div>
+            <div class="card15__tips">Pindai QR untuk konfirmasi kehadiran.<br>
+              Nomor undian muncul setelah pindai.</div>
+            <div class="card15__no">${String(i + 1).padStart(2, '0')}/4</div>
           </div>
         </div>
-        <div class="inv-card__foot">Pindai QR untuk konfirmasi kehadiran.<br>Nomor undian muncul setelah scan.</div>
       </div>`).join('')}
     </div>
     <p class="small center" style="color:var(--ink-soft);margin-top:10px">
-      (Pola kotak pada pratinjau ini hanya pengganti QR asli.)
+      Ukuran kartu 1:1 (100 × 150 mm). Pola kotak pada pratinjau ini hanya pengganti QR asli —
+      di panel admin QR-nya asli per tamu, dan ada tombol <strong>Pratinjau siap cetak 10×15</strong>.
     </p>
   </section>
 
@@ -345,6 +432,59 @@ ${css}
     Pratinjau desain · dibuat otomatis oleh tools/make-demo.mjs
   </footer>
 </main>
+<script>
+/* Salju pratinjau — meniru salju di layar undian (js/undian.js) */
+(function () {
+  var c = document.getElementById('snow-demo');
+  if (!c || !c.getContext) return;
+  var ctx = c.getContext('2d');
+  var dpr = Math.min(window.devicePixelRatio || 1, 2);
+  var w = 0, h = 0, butir = [], kurangi = false;
+  try { kurangi = window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) {}
+
+  function ukuran() {
+    var r = c.parentElement.getBoundingClientRect();
+    w = Math.max(1, Math.round(r.width)); h = Math.max(1, Math.round(r.height));
+    c.width = w * dpr; c.height = h * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  function baru(awal) {
+    var r = 1.1 + Math.random() * 2.9;
+    return { x: Math.random() * w, y: awal ? Math.random() * h : -10 - Math.random() * 40,
+      r: r, v: 0.25 + r * 0.22 + Math.random() * 0.35,
+      ayun: 0.4 + Math.random() * 1.2, fase: Math.random() * 6.28,
+      o: 0.35 + Math.random() * 0.5 };
+  }
+  function isi() {
+    var n = Math.round(Math.min(220, Math.max(30, (w * h) / 9000)));
+    butir = []; for (var i = 0; i < n; i++) butir.push(baru(true));
+  }
+  function gambar() {
+    ctx.clearRect(0, 0, w, h);
+    for (var i = 0; i < butir.length; i++) {
+      var b = butir[i];
+      ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, 6.2832);
+      ctx.fillStyle = 'rgba(255,252,244,' + b.o + ')'; ctx.fill();
+      if (b.r > 2.6) { ctx.beginPath();
+        ctx.arc(b.x - b.r * 0.25, b.y - b.r * 0.25, b.r * 0.34, 0, 6.2832);
+        ctx.fillStyle = 'rgba(255,255,255,.85)'; ctx.fill(); }
+    }
+  }
+  function langkah(t) {
+    for (var i = 0; i < butir.length; i++) {
+      var b = butir[i];
+      if (!kurangi) { b.y += b.v; b.x += Math.sin(t / 1000 * b.ayun + b.fase) * 0.35; }
+      if (b.y - b.r > h + 4) { var nb = baru(false); b.x = nb.x; b.y = nb.y; b.r = nb.r; b.v = nb.v;
+        b.ayun = nb.ayun; b.fase = nb.fase; b.o = nb.o; }
+    }
+    gambar();
+    requestAnimationFrame(langkah);
+  }
+  ukuran(); isi(); gambar();
+  if (!kurangi) requestAnimationFrame(langkah);
+  window.addEventListener('resize', function () { ukuran(); isi(); gambar(); });
+})();
+</script>
 </body>
 </html>
 `;

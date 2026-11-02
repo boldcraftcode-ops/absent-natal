@@ -133,7 +133,12 @@ console.log('== Syarat PWA (petugas)');
     ['tombol tes database', /id="btn-db-test"/.test(html)],
     ['diagnosa memanggil runDbChecks', /runDbChecks/.test(readFileSync(join(root, 'js/petugas.js'), 'utf8'))],
     ['pesan schema cache dipisah dari schema.sql',
-      /schema cache/i.test(readFileSync(join(root, 'api.js'), 'utf8'))]
+      /schema cache/i.test(readFileSync(join(root, 'api.js'), 'utf8'))],
+    // kelengkapan database: schema_check() di skema + dipanggil aplikasi
+    ['fungsi schema_check() ada di skema', /create or replace function public\.schema_check\(\)/.test(readFileSync(join(root, 'supabase/schema.sql'), 'utf8'))],
+    ['schema_check() boleh dipanggil anon', /grant execute on function public\.schema_check\(\)\s+to anon/.test(readFileSync(join(root, 'supabase/schema.sql'), 'utf8'))],
+    ['pelengkap kolom (add column if not exists) ada', /add column if not exists wants_souvenir/.test(readFileSync(join(root, 'supabase/schema.sql'), 'utf8'))],
+    ['aplikasi memanggil schemaCheck', /schemaCheck/.test(readFileSync(join(root, 'js/petugas.js'), 'utf8')) && /schema_check/.test(readFileSync(join(root, 'api.js'), 'utf8'))]
   ];
   for (const [nama, ok2] of perlu) {
     if (ok2) ok(`PWA: ${nama}`);

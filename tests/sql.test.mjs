@@ -407,6 +407,43 @@ check('anon butuh PIN untuk fungsi admin (PIN benar tetap jalan)', badPin.length
 const insertAnon = await asRole('anon', () => q(`insert into public.participants (token,name,name_norm,lottery_no) values ('x','y','y',9999)`).catch((e) => e.message));
 check('anon tidak bisa insert ke tabel', typeof insertAnon === 'string' || insertAnon.length === 0);
 
+// --------------------------------------------------- 9. schema_check() & migrasi
+results.push('== 9. schema_check() + pelengkap kolom');
+{
+  // database baru: semuanya lengkap -> ok
+  const r = await rpc('schema_check', {});
+  check('schema_check: database baru dinyatakan lengkap', r.ok === true, JSON.stringify(r).slice(0, 200));
+  check('schema_check: tidak ada tabel/fungsi yang hilang',
+    r.missing_tables.length === 0 && r.missing_functions.length === 0 &&
+    r.missing_columns.length === 0, JSON.stringify(r).slice(0, 200));
+  check('schema_check: tersedia untuk anon (bisa dipanggil aplikasi)',
+    (await asRole('anon', () => q('select public.schema_check() as r')))[0].r !== null);
+
+  // database "versi lama": tabel ada tetapi kolomnya belum -> dilaporkan hilang
+  const lama = await PGlite.create({ extensions: { pgcrypto } });
+  await lama.exec(`create schema if not exists extensions;
+    create table public.settings (key text primary key, value text not null);
+    create table public.participants (id uuid primary key, name text, phone text,
+      invited boolean default false, lottery_no integer, attended boolean default false);
+    create table public.prizes (id uuid primary key, name text, qty integer default 1);
+    create table public.winners (id uuid primary key, status text);`);
+  await lama.exec(schema);
+  const lamaCheck = (await lama.query('select public.schema_check() as r')).rows[0].r;
+  check('migrasi: database versi lama dinyatakan lengkap setelah skema dijalankan ulang',
+    lamaCheck.ok === true, JSON.stringify(lamaCheck).slice(0, 300));
+  const kolom = (await lama.query(`select column_name from information_schema.columns
+     where table_schema='public' and table_name='participants'`)).rows.map((x) => x.column_name);
+  check('migrasi: kolom baru ditambahkan ke tabel lama',
+    ['token', 'name_norm', 'wants_souvenir', 'source', 'created_at'].every((c) => kolom.includes(c)),
+    kolom.join(','));
+  const imp = (await lama.query(`select public.admin_import('admin1234',
+    '[{"name":"Uji Migrasi","phone":"081200000001"}]'::jsonb) as r`)).rows[0].r;
+  check('migrasi: import undangan jalan di database yang dimigrasikan', imp.ok === true,
+    JSON.stringify(imp).slice(0, 200));
+  await lama.close();
+}
+
+
 // ------------------------------------------------------------------ ringkasan
 console.log(results.join('\n'));
 console.log(`\n${pass} lulus, ${failures.length} gagal`);

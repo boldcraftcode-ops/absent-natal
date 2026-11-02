@@ -1356,6 +1356,52 @@ console.log('== 26. Petugas — diagnosa "schema" / sambungan database');
   kunciSalah.close();
 }
 
+console.log('== 27. Diagnosa kolom hilang & schema_check()');
+{
+  // 1) "column ... does not exist" -> pesan menyebut rinciannya, dan saran menjalankan schema.sql
+  const kolom = await runPage('petugas.html', {
+    fetch: async (url, opts) => {
+      if (/\/rest\/v1\/?$/.test(String(url))) return jsonRes({ info: {} }, 200);
+      return jsonRes({
+        code: '42703',
+        message: 'column p.wants_souvenir does not exist'
+      }, 400);
+    }
+  });
+  await until(() => /wants_souvenir/.test(kolom.text('#db-check-list')), { label: 'diagnosa kolom' });
+  const t1 = kolom.text('#db-check-list');
+  check('kolom hilang: rincian kolom ikut ditampilkan', /column p\.wants_souvenir does not exist/.test(t1),
+    t1.slice(0, 240));
+  check('kolom hilang: saran menjalankan schema.sql versi terbaru',
+    /schema\.sql/.test(t1) && /versi terbaru|aman diulang/i.test(t1), t1.slice(0, 320));
+  kolom.close();
+
+  // 2) skema versi lama: schema_check() belum ada -> saran menjalankan schema.sql
+  const lama = await runPage('petugas.html', {
+    fetch: async (url) => {
+      const u = String(url);
+      if (/\/rest\/v1\/?$/.test(u)) return jsonRes({ info: {} }, 200);
+      if (/schema_check/.test(u)) {
+        return jsonRes({ code: 'PGRST202', message: 'Could not find the function public.schema_check in the schema cache' }, 404);
+      }
+      return pgFetch(url);
+    }
+  });
+  await until(() => /schema_check/.test(lama.text('#db-check-list')), { label: 'schema_check versi lama' });
+  check('skema lama: mendeteksi schema_check() belum ada',
+    /schema_check\(\) belum ada|schema_check/i.test(lama.text('#db-check-list')), lama.text('#db-check-list').slice(0, 240));
+  lama.close();
+
+  // 3) server normal: schema_check() dari database asli -> "Struktur ... lengkap"
+  const sehat = await runPage('petugas.html');
+  await until(() => /Struktur tabel & fungsi database lengkap/i.test(sehat.text('#db-check-list')),
+    { label: 'schema_check normal' });
+  check('schema_check: database lengkap dilaporkan ✅',
+    /✅ Struktur tabel & fungsi database lengkap/i.test(sehat.text('#db-check-list')),
+    sehat.text('#db-check-list').slice(0, 240));
+  sehat.close();
+}
+
 console.log(`\n${pass} lulus, ${fails.length} gagal`);
 if (fails.length) { console.log('Gagal:'); fails.forEach((f) => console.log(' - ' + f)); }
 process.exit(fails.length ? 1 : 0);

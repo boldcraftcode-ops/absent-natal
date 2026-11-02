@@ -264,6 +264,25 @@ ${css}
             <button class="btn btn--outline btn--sm">Cara pasang aplikasi (Android)</button>
           </div>
         </div>
+
+        <!-- diagnosa sambungan & database (pesan "schema") -->
+        <div class="card card--flat" style="padding:12px 14px">
+          <strong class="small" style="color:var(--cocoa-800)">🩺 Periksa sambungan &amp; database</strong>
+          <ul class="small" id="db-check-list" style="margin:8px 0 0;padding-left:18px;line-height:1.6">
+            <li style="color:var(--olive-700)">✅ Alamat proyek: https://kode-proyek.supabase.co</li>
+            <li style="color:var(--olive-700)">✅ Kunci API: sb_publishab… (publishable)</li>
+            <li style="color:var(--olive-700)">✅ Server Supabase terhubung (HTTP 200)</li>
+            <li style="color:var(--olive-700)">✅ Fungsi event_info() jalan — acara: Perayaan Natal 2026</li>
+            <li style="color:var(--cran-800)">❌ Fungsi staff_data() gagal dipanggil.
+              <div class="small" style="color:var(--ink-soft)">Contoh pesan bila schema cache belum diperbarui
+              → tekan “Reload schema cache” di Dashboard Supabase, tunggu ±1 menit, lalu tes lagi.</div>
+            </li>
+          </ul>
+          <div class="row" style="gap:8px;margin-top:10px;flex-wrap:wrap">
+            <button class="btn btn--outline btn--sm">Tes sekarang</button>
+            <button class="btn btn--outline btn--sm">Salin hasil</button>
+          </div>
+        </div>
       </div>
 
       <div class="stack">

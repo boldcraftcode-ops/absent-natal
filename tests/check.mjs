@@ -156,6 +156,9 @@ console.log('== Syarat PWA (petugas)');
       !/id="btn-print-cards"/.test(readFileSync(join(root, 'admin.html'), 'utf8'))
       && !/id="btn-preview-cards"/.test(readFileSync(join(root, 'admin.html'), 'utf8'))],
     ['modul penggambar kartu PDF ada', existsSync(join(root, 'js/cards-pdf.js'))],
+    ['uji tata letak kartu PDF tersedia', existsSync(join(root, 'tests/pdf.test.mjs'))],
+    ['catatan PDF menyebut tata letak sama dengan pratinjau',
+      /tata letaknya sama dengan pratinjau/i.test(readFileSync(join(root, 'admin.html'), 'utf8'))],
     ['pustaka jsPDF ikut dikemas', existsSync(join(root, 'vendor/jspdf.umd.min.js'))],
     ['jsPDF di-precache service worker', readFileSync(join(root, 'sw.js'), 'utf8').includes("'./vendor/jspdf.umd.min.js'")]
   ];

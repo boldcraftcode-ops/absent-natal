@@ -477,6 +477,34 @@ Isi setiap lembar PDF sudah pasti: ukuran halaman = kertas sesuai susunan
 dan **QR asli per tamu** (480 px ≈ 300 dpi pada kotak 44 mm). Nomor undian tetap
 **tidak dicetak**.
 
+### PDF = pratinjau (mengapa dulu berbeda)
+
+Sebelumnya PDF digambar ulang dengan posisi & ukuran huruf tetap, sehingga
+tidak sama dengan pratinjau web dan teks panjang terpotong ("…") atau menabrak
+blok lain. Sekarang `js/cards-pdf.js` **meniru tata letak CSS pratinjau**:
+
+| Pratinjau (styles.css) | PDF (js/cards-pdf.js) |
+|---|---|
+| `.card15__rule` — baris tiga warna | baris tiga warna 1,2 mm |
+| `.card15__head` — ✦ + nama acara + organisasi | bintang vektor + nama acara (Times bold 6,4 mm) + organisasi |
+| `.card15__body` — QR 40 mm + KEPADA/nama/asal | kotak QR 40 mm + teks, keduanya dipusatkan |
+| `.card15__meta` — WAKTU / TEMPAT | label kolom 17 mm + nilai |
+| `.card15__foot` — petunjuk + nomor kartu | **selalu menempel di dasar kartu** (seperti grid `1fr`) |
+| latar gradasi 160° | gradasi 56 pita (≈ 0,2 mm per pita) |
+| tanda sudut 5 mm + bingkai putus-putus | digambar & dipotong sesuai sudut kartu (`clip`) |
+
+**Tidak ada lagi teks terpotong**: setiap blok diukur dulu, dan bila isinya
+terlalu panjang ukuran huruf + kotak QR menyusut serentak (maksimal 38 %)
+sampai semuanya muat tanpa memotong kata. Dijaga oleh `node tests/pdf.test.mjs`:
+
+```bash
+cd tests && node pdf.test.mjs      # 34 pemeriksaan tata letak kartu PDF
+```
+
+Yang diperiksa: semua isi kartu benar-benar tercetak, tidak ada "…", semua teks
+di dalam batas kartu, urutan blok sama dengan pratinjau, dan kartu tetap benar
+pada susunan 4/A4 maupun 2/A4.
+
 > Pembuat PDF memakai **jsPDF** yang ikut dikemas di `vendor/jspdf.umd.min.js`
 > (tetap jalan offline; bila berkas lokal tidak ditemukan, otomatis mencoba CDN).
 > Semua gambar kartu dibuat oleh `js/cards-pdf.js` — modul terpisah yang juga dipakai

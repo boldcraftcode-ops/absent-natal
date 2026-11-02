@@ -6,7 +6,7 @@
      * Supabase  : TIDAK pernah di-cache (selalu jaringan)
    ========================================================================== */
 
-const VERSION = 'natal-v8-pdf';
+const VERSION = 'natal-v9-pdf-mirror';
 const CACHE = `absensi-${VERSION}`;
 
 const PRECACHE = [

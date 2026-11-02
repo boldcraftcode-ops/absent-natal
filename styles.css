@@ -1177,18 +1177,6 @@ body.screen {
   outline: none;
   box-shadow: var(--ring);
 }
-/* label anggota keluarga */
-.family-input-wrap { position: relative; }
-.family-input-wrap .family-num {
-  position: absolute;
-  left: 12px; top: 50%;
-  transform: translateY(-50%);
-  font-size: .74rem; font-weight: 700;
-  color: var(--honey-600);
-  pointer-events: none;
-}
-.family-input-wrap .input { padding-left: 34px; }
-
 /* ==========================================================================
    BANNER PASANG APLIKASI (PWA petugas)
    ========================================================================== */

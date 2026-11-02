@@ -1184,18 +1184,6 @@ body.screen {
   outline: none;
   box-shadow: var(--ring);
 }
-/* label anggota keluarga */
-.family-input-wrap { position: relative; }
-.family-input-wrap .family-num {
-  position: absolute;
-  left: 12px; top: 50%;
-  transform: translateY(-50%);
-  font-size: .74rem; font-weight: 700;
-  color: var(--honey-600);
-  pointer-events: none;
-}
-.family-input-wrap .input { padding-left: 34px; }
-
 /* ==========================================================================
    BANNER PASANG APLIKASI (PWA petugas)
    ========================================================================== */
@@ -1352,12 +1340,7 @@ body.screen .wrap { position: relative; z-index: 5; }
               <option>4 orang</option>
               <option>5 orang (maksimal)</option>
             </select>
-            <span class="hint">Cukup pilih jumlahnya. Isi nama bila ingin dicatat (opsional).</span></label>
-          <div class="field">
-            <span class="label">Nama anggota keluarga (opsional)</span>
-            <input class="input" value="Yosef" readonly>
-            <input class="input" value="Maria" readonly style="margin-top:8px">
-          </div>
+            <span class="hint">Cukup pilih jumlahnya — dipakai untuk menghitung kupon makan.</span></label>
           <fieldset class="check-card">
             <legend class="check-card__legend">Ambil di meja registrasi</legend>
             <label class="check-row">
@@ -1409,11 +1392,6 @@ body.screen .wrap { position: relative; z-index: 5; }
               <option>4 orang</option>
               <option>5 orang (maksimal)</option>
             </select></label>
-          <div class="field">
-            <span class="label">Nama anggota keluarga (opsional)</span>
-            <input class="input" value="Yosef" readonly>
-            <input class="input" value="Maria" readonly style="margin-top:8px">
-          </div>
           <fieldset class="check-card">
             <legend class="check-card__legend">Ambil di meja registrasi</legend>
             <label class="check-row">
@@ -1500,12 +1478,51 @@ body.screen .wrap { position: relative; z-index: 5; }
       </div>
 
       <div class="stack">
+        <!-- panel isian setelah QR terbaca -->
+        <div class="card card--ribbon stack">
+          <div>
+            <h2 class="card__title">Hadirkan Siti Aminah</h2>
+            <p class="card__sub">Nomor undian <strong>027</strong> · Keuangan — isi keluarga &amp; konsumsi, lalu simpan.</p>
+          </div>
+          <div class="check-card" style="margin:0">
+            <div class="check-row">
+              <span class="check-row__box" aria-hidden="true">👤</span>
+              <span class="check-row__text"><strong>Siti Aminah</strong><span>Keuangan · 081311112222</span></span>
+            </div>
+            <div class="check-row">
+              <span class="check-row__box" aria-hidden="true">👨‍👩‍👧</span>
+              <span class="check-row__text"><strong>Keluarga yang ikut</strong><span>2 orang</span></span>
+            </div>
+          </div>
+          <label class="field" style="margin:0">
+            <span class="label">Jumlah anggota keluarga yang ikut</span>
+            <select class="select"><option>2 orang</option></select>
+            <span class="hint">Termasuk kupon makan untuk anggota keluarga.</span>
+          </label>
+          <div class="check-card">
+            <label class="check-row">
+              <input type="checkbox" checked>
+              <span class="check-row__box" aria-hidden="true">🍱</span>
+              <span class="check-row__text"><strong>Kupon Makan</strong><span>Termasuk anggota keluarga</span></span>
+            </label>
+            <label class="check-row">
+              <input type="checkbox">
+              <span class="check-row__box" aria-hidden="true">🎁</span>
+              <span class="check-row__text"><strong>Souvenir</strong><span>Satu per peserta hadir</span></span>
+            </label>
+          </div>
+          <div class="row" style="gap:8px;flex-wrap:wrap">
+            <button class="btn btn--red btn--xl grow" type="button">Simpan &amp; Hadirkan</button>
+            <button class="btn btn--outline btn--xl" type="button">Batal</button>
+          </div>
+        </div>
+
         <div class="scan-card scan-card--ok">
           <div class="small" style="letter-spacing:.08em;text-transform:uppercase;opacity:.9">Hadir tercatat</div>
           <div class="scan-card__name">Siti Aminah</div>
           <div class="scan-card__no">027</div>
           <div class="scan-card__meta">Sebutkan nomor undian: <strong>027</strong></div>
-          <div class="scan-card__meta">👨‍👩‍👧 2 keluarga (Yosef, Maria) · 🍱 Kupon makan</div>
+          <div class="scan-card__meta">👨‍👩‍👧 2 anggota keluarga · 🍱 Kupon makan</div>
           <div class="scan-card__meta" style="margin-top:6px">Keuangan · 081311112222</div>
         </div>
         <div class="scan-card scan-card--dup">

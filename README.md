@@ -228,31 +228,56 @@ Aturan penting yang sudah diterapkan:
 * Hasil undian disimpan lokal dulu lalu dikirim lewat antrean ber-UUID
   (idempoten), otomatis terkirim saat sinyal kembali.
 
-### Anggota keluarga, kupon makan & souvenir
+### Jumlah anggota keluarga, kupon makan & souvenir
 
-* Halaman peserta memakai **dropdown** jumlah anggota keluarga **0–5** (bukan
-  kolom angka bebas) — tersedia **di dua jalur**: layar **undangan** (tamu yang
-  memindai QR kartu undangan) dan layar **form tanpa undangan**. Begitu jumlah dipilih, kolom nama anggota keluarga muncul
-  sesuai jumlah tersebut — **opsional**, boleh dikosongkan.
+* Yang dicatat **hanya jumlahnya**. Halaman peserta memakai **dropdown** jumlah
+  anggota keluarga **0–5** (bukan kolom angka bebas) — tersedia **di dua jalur**:
+  layar **undangan** (tamu yang memindai QR kartu undangan) dan layar **form tanpa
+  undangan**.
+* **Nama anggota keluarga tidak diminta** — tidak ada kolom nama di halaman
+  peserta, layar petugas, panel admin, maupun ekspor Excel/CSV. Tabel
+  `family_members` tetap ada di skema untuk kompatibilitas, tetapi tidak lagi
+  diisi maupun dibaca (tidak perlu dihapus dari database).
 * Dua kotak centang tersedia: **Kupon Makan** dan **Souvenir**. Kupon makan
   berlaku untuk peserta **beserta anggota keluarga**; souvenir satu per peserta.
-* Nama anggota keluarga dirapikan di server: spasi ganda dirapatkan, entri
-  kosong (< 2 huruf) dibuang, duplikat (tanpa peduli huruf besar/kecil) dibuang,
-  dan jumlahnya dipotong maksimal **5**. Angka `family_count` selalu disamakan
-  dengan jumlah nama yang tercatat — tetapi tidak pernah turun saat data
-  digabung (merge) dengan pendaftaran ulang.
+* Angka `family_count` dibatasi 0–5 di server dan **tidak pernah turun** saat data
+  digabung (merge) dengan pendaftaran ulang atau isian petugas.
 * Jalur undangan mengirim pilihan itu bersama `confirm_attendance`. Bila tamu
-  memindai ulang, kolom keluarga/kupon **tidak tampil lagi** (layar “sudah
+  memindai ulang, isian keluarga/kupon **tidak tampil lagi** (layar “sudah
   tercatat hadir” hanya menampilkan ringkasannya) sehingga nomor undian & waktu
   hadir awal tidak berubah. Pilihan keluarga/kupon juga disembunyikan saat
   absensi ditutup.
 * Kartu statistik **🍱 Kupon makan** dan **🎁 Souvenir** di panel admin memakai
   angka resmi server (`totals`), yaitu jumlah peserta hadir yang mencentang
   **ditambah** anggota keluarganya.
-* Ekspor Excel & CSV memuat kolom **Jumlah Keluarga**, **Anggota Keluarga**
-  (nama digabung koma), **Kupon Makan** (Ya/Tidak), dan **Souvenir** (Ya/Tidak).
+* Ekspor Excel & CSV memuat kolom **Jumlah Keluarga**, **Kupon Makan** (Ya/Tidak),
+  dan **Souvenir** (Ya/Tidak).
 * Petugas juga memakai dropdown 0–5 + dua kotak centang pada tab **Tambah**;
   nilainya ikut tersimpan offline di antrean dan terkirim saat sinkron.
+
+#### Isian setelah memindai QR (tab Scan petugas)
+
+Saat QR undangan terbaca (atau kode undangan ditempel di kolom manual), petugas
+**tidak** langsung mencatat kehadiran. Muncul panel isian tepat di bawah kamera:
+
+| Bagian | Isi |
+|---|---|
+| Judul | “Hadirkan *nama peserta*” + nomor undian besar + asal |
+| 👤 / 👨‍👩‍👧 | Nama peserta + jumlah keluarga yang sudah tercatat (bila ada) |
+| Dropdown | **Jumlah anggota keluarga yang ikut** (0–5) |
+| Centang | **🍱 Kupon Makan** dan **🎁 Souvenir** |
+| Tombol | **Simpan & Hadirkan** (merah) atau **Batal** |
+
+* Nilai awal diambil dari isian peserta sendiri saat konfirmasi (`family_count`,
+  `wants_meal`, `wants_souvenir` dari `staff_data`), jadi petugas tinggal
+  menyesuaikan bila tamu membawa orang lain.
+* Setelah **Simpan & Hadirkan**, petugas melihat kartu hijau yang mencantumkan
+  nomor undian dan ringkasan isian (“👨‍👩‍👧 2 keluarga · 🍱 Kupon makan · 🎁 Souvenir”).
+* Isian dikirim bersama antrean `staff_sync`; server menyimpannya **hanya menambah**
+  (keluarga 0 tidak menimpa; centang tidak bisa dibatalkan dari layar petugas),
+  sehingga data yang sudah diisi tamu tidak hilang.
+* Tombol **Hadirkan** pada tab **Cari** memakai panel isian yang sama.
+  **Batal** menutup panel tanpa mencatat apa pun dan membolehkan QR dipindai ulang.
 
 ---
 

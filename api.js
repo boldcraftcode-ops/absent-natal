@@ -182,10 +182,9 @@ export const api = {
     p_family: Math.max(0, Math.min(5, Number(opts.family) || 0)),
     p_meal: Boolean(opts.meal),
     p_souvenir: Boolean(opts.souvenir),
-    p_family_names: Array.isArray(opts.familyNames) && opts.familyNames.length
-      ? opts.familyNames : null
+    p_family_names: null
   }),
-  walkinRegister: (name, phone, org, family, meal = false, souvenir = false, familyNames = []) =>
+  walkinRegister: (name, phone, org, family, meal = false, souvenir = false) =>
     rpc('walkin_register', {
       p_name: name,
       p_phone: phone,
@@ -193,7 +192,7 @@ export const api = {
       p_family: Math.max(0, Math.min(5, Number(family) || 0)),
       p_meal: Boolean(meal),
       p_souvenir: Boolean(souvenir),
-      p_family_names: Array.isArray(familyNames) && familyNames.length ? familyNames : null
+      p_family_names: null
     }),
 
   // petugas

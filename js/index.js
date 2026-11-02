@@ -3,7 +3,7 @@
    Tiga jalur: (1) scan QR undangan sendiri, (2) QR dipindai petugas,
    (3) form tanpa undangan. Satu daftar hadir.
    ========================================================================== */
-import { api } from '../api.js';
+import { api, lastDiag } from '../api.js';
 import { pad3, fmtTime, toast, normPhone, store, online } from '../util.js';
 import { qrPngDataUrl } from '../qr.js';
 
@@ -113,6 +113,20 @@ function renderForm(showClosed) {
 
 function renderError(message) {
   document.getElementById('error-message').textContent = message;
+  const det = document.getElementById('error-detail');
+  if (det) {
+    // Rincian teknis singkat: memudahkan panitia melaporkan penyebabnya.
+    const bagian = [];
+    if (lastDiag.fn) bagian.push(`Fungsi: ${lastDiag.fn}()`);
+    if (lastDiag.status) bagian.push(`HTTP ${lastDiag.status}`);
+    if (lastDiag.at) bagian.push(new Date(lastDiag.at).toLocaleTimeString('id-ID'));
+    if (bagian.length) {
+      det.textContent = `Rincian teknis — ${bagian.join(' · ')}`;
+      det.classList.remove('hidden');
+    } else {
+      det.classList.add('hidden');
+    }
+  }
   show('error');
 }
 

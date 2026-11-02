@@ -172,6 +172,12 @@ async function doLogin(pin) {
       ? 'Tidak ada koneksi. Login pertama kali membutuhkan internet agar daftar peserta bisa diunduh.'
       : (e?.message || 'Gagal masuk. Periksa PIN Anda.');
     err.classList.remove('hidden');
+
+    // Kesalahan server/skema/kunci API: buka panel diagnosa supaya penyebabnya langsung terlihat.
+    if (e?.code !== 'offline' && e?.code !== 'pin_invalid') {
+      const pan = document.getElementById('db-diagnose');
+      if (pan) { pan.open = true; runDbChecks().catch(() => {}); }
+    }
     vibrate([40, 60, 40]);
   } finally {
     btn.disabled = false;
@@ -399,6 +405,193 @@ async function testCamera() {
         : `❌ Kamera gagal diminta (${msg.slice(0, 60)}).`;
     await refreshCameraChecks();
   }
+}
+
+/* ==================================== diagnosa sambungan & database */
+const DB_DIAG_KEY = 'staff_db_diag';
+
+const IKON = { ok: '✅', warn: '⚠️', bad: '❌' };
+const WARNA = { ok: 'var(--olive-700)', warn: 'var(--honey-600)', bad: 'var(--cran-800)' };
+
+/** Ringkasan hasil diagnosa untuk disalin ke WA/panitia. */
+function dbDiagText(rows) {
+  const now = new Date().toLocaleString('id-ID');
+  const cfgv = cfg();
+  return [
+    `Diagnosa aplikasi petugas — ${now}`,
+    `Alamat: ${location.origin}${location.pathname}`,
+    `Supabase: ${cfgv.SUPABASE_URL || '(kosong)'}`,
+    `Kunci API: ${cfgv.SUPABASE_ANON_KEY ? String(cfgv.SUPABASE_ANON_KEY).slice(0, 12) + '…' : '(kosong)'}`,
+    ...rows.map((r) => `${IKON[r.status] || '•'} ${r.teks}${r.saran ? ` — ${r.saran}` : ''}`)
+  ].join('\n');
+}
+
+/** Uji alamat proyek Supabase (tanpa RPC) dengan batas waktu. */
+async function cekAlamat(url, key) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 8000);
+  try {
+    const res = await fetch(`${url}/rest/v1/`, {
+      headers: { apikey: key, Authorization: `Bearer ${key}` },
+      signal: ctrl.signal,
+      cache: 'no-store'
+    });
+    return { ok: true, status: res.status };
+  } catch (e) {
+    return { ok: false, status: 0, err: String(e?.name || e?.message || e) };
+  } finally { clearTimeout(t); }
+}
+
+/**
+ * Periksa konfigurasi, jangkauan server, kunci API, dan fungsi database.
+ * Menulis hasil ke #db-check-list; mengembalikan daftar barisnya.
+ */
+async function runDbChecks(opts = {}) {
+  const list = document.getElementById('db-check-list');
+  if (!list) return [];
+  list.innerHTML = '<li>Memeriksa…</li>';
+
+  const rows = [];
+  const tambah = (status, teks, saran = '') => rows.push({ status, teks, saran });
+  const c = cfg();
+  const url = String(c.SUPABASE_URL || '').trim().replace(/\/+$/, '');
+  const key = String(c.SUPABASE_ANON_KEY || '').trim();
+
+  // 1. config.js terisi
+  if (!url || !key) {
+    tambah('bad', 'config.js belum diisi (SUPABASE_URL / SUPABASE_ANON_KEY kosong)',
+      'Isi config.js dengan alamat & anon key proyek, unggah ulang ke Netlify, lalu muat ulang.');
+  } else {
+    tambah('ok', `Alamat proyek: ${url}`);
+  }
+
+  // 2. bentuk alamat benar
+  if (url) {
+    const rapi = /^https:\/\/[a-z0-9-]+\.supabase\.(co|in)$/.test(url);
+    tambah(rapi ? 'ok' : 'warn',
+      rapi ? 'Bentuk alamat sudah benar' : `Bentuk alamat perlu diperiksa: ${url}`,
+      rapi ? '' : 'Harus seperti https://kode-proyek.supabase.co — tanpa /rest/v1 atau spasi.');
+  }
+  if (key) {
+    tambah('ok', `Kunci API: ${key.slice(0, 12)}… (${key.startsWith('sb_publishable_') ? 'publishable' : key.startsWith('eyJ') ? 'anon JWT lama' : 'tidak dikenal'})`);
+    if (!key.startsWith('sb_publishable_') && !key.startsWith('eyJ')) {
+      tambah('warn', 'Kunci API bentuknya tidak dikenal',
+        'Ambil ulang dari Dashboard Supabase → Project Settings → API Keys.');
+    }
+  }
+
+  // 3. koneksi & kunci API benar (bukan "schema", tapi paling sering jadi penyebab)
+  if (url && key) {
+    const r = await cekAlamat(url, key);
+    if (!r.ok) {
+      tambah('bad', `Server Supabase tidak bisa dihubungi (${r.err || 'gagal'})`,
+        'Periksa sinyal internet. Bila internet normal, proyek mungkin dijeda/dihapus: '
+        + 'buka Dashboard Supabase → pastikan proyek aktif (tidak “Paused”).');
+    } else if (r.status === 401 || r.status === 403) {
+      tambah('bad', `Kunci API ditolak server (HTTP ${r.status})`,
+        'Salin ulang anon/publishable key dari Dashboard Supabase ke config.js.');
+    } else if (r.status === 404) {
+      tambah('bad', 'Alamat proyek Supabase tidak ditemukan (HTTP 404)',
+        'SUPABASE_URL di config.js harus https://kode-proyek.supabase.co — tanpa /rest/v1, '
+        + 'tanpa spasi, dan sama persis dengan alamat proyek Anda.');
+    } else if (r.status >= 500) {
+      tambah('bad', `Server Supabase bermasalah (HTTP ${r.status})`,
+        'Coba lagi beberapa menit. Bila tetap, proyek mungkin dijeda.');
+    } else {
+      tambah('ok', `Server Supabase terhubung (HTTP ${r.status})`);
+    }
+  }
+
+  // 4. fungsi database terpasang & dikenali API
+  if (url && key) {
+    try {
+      const info = await api.eventInfo();
+      tambah('ok', `Fungsi event_info() jalan — acara: ${info?.event_name || '(tanpa nama)'}`);
+    } catch (e) {
+      if (e?.code === 'offline' || e?.code === 'timeout') {
+        tambah('bad', `Tidak bisa memanggil fungsi database (${e?.code === 'timeout' ? 'waktu habis' : 'offline'})`);
+      } else {
+        tambah('bad', e?.message || 'Fungsi event_info() gagal dipanggil.',
+          'Ini pesan asli Supabase. Bila menyebut “schema cache”, tekan Reload schema cache di '
+          + 'Dashboard Supabase → Project Settings → API, tunggu ±1 menit, lalu tes lagi.');
+      }
+    }
+
+    // 5. fungsi petugas dengan PIN yang tersimpan (bila ada)
+    //    Hanya pada tes mendalam agar membuka halaman tidak mengunduh ulang daftar peserta.
+    if (S.pin && opts.deep) {
+      try {
+        const res = await api.staffData(S.pin);
+        const jml = Array.isArray(res?.participants) ? res.participants.length : 0;
+        tambah(res?.ok ? 'ok' : 'warn',
+          res?.ok ? `Fungsi staff_data() jalan — ${jml} peserta terbaca` : 'staff_data() menolak PIN tersimpan',
+          res?.ok ? '' : 'Masukkan PIN lagi. Bila tetap gagal, ganti PIN lewat panel admin.');
+      } catch (e) {
+        tambah('bad', e?.message || 'Fungsi staff_data() gagal dipanggil.',
+          /PIN/i.test(e?.message || '') ? 'PIN salah: masukkan PIN petugas yang berlaku.'
+            : 'Bila menyebut fungsi tidak ada, jalankan ulang supabase/schema.sql di proyek Supabase yang SAMA dengan config.js.');
+      }
+    }
+  }
+
+  // 6. data lokal
+  tambah(S.people.length ? 'ok' : 'warn',
+    `${S.people.length} peserta tersimpan di HP ini`,
+    S.people.length ? '' : 'Belum ada data lokal: login pertama memang perlu internet.');
+
+  list.innerHTML = rows.map((r) => `
+    <li style="color:${WARNA[r.status] || 'inherit'}">
+      ${IKON[r.status] || '•'} ${esc(r.teks)}
+      ${r.saran ? `<div class="small" style="color:var(--ink-soft)">${esc(r.saran)}</div>` : ''}
+    </li>`).join('');
+
+  try { store.set(DB_DIAG_KEY, { at: Date.now(), rows }); } catch { /* diabaikan */ }
+  return rows;
+}
+
+/** Tombol “Tes sekarang”. */
+async function testDb() {
+  const out = document.getElementById('db-test-result');
+  if (out) out.textContent = 'Memeriksa sambungan & database…';
+  const rows = await runDbChecks({ deep: true });
+  if (!out) return;
+  const bad = rows.filter((r) => r.status === 'bad').length;
+  const warn = rows.filter((r) => r.status === 'warn').length;
+  out.textContent = bad
+    ? `❌ ${bad} masalah ditemukan. Baca saran di daftar di atas, lalu tes lagi.`
+    : warn
+      ? `⚠️ Sambungan & database OK, ada ${warn} catatan kecil.`
+      : '✅ Sambungan, kunci API, dan fungsi database semuanya normal.';
+}
+
+/** Salin hasil diagnosa (untuk dikirim ke panitia/pengembang). */
+async function copyDbDiag() {
+  const out = document.getElementById('db-test-result');
+  const rows = (await runDbChecks({ deep: true })) || [];
+  const teks = dbDiagText(rows);
+  let berhasil = false;
+  try {
+    if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(teks); berhasil = true; }
+  } catch { /* jatuh ke cara lama */ }
+  if (!berhasil) {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = teks;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      berhasil = Boolean(document.execCommand && document.execCommand('copy'));
+      document.body.removeChild(ta);
+    } catch { /* diabaikan */ }
+  }
+  if (out) {
+    out.textContent = berhasil
+      ? '📋 Hasil diagnosa disalin. Tempel ke WhatsApp untuk dikirim ke panitia.'
+      : `Salin manual:\n${teks}`;
+  }
+  if (berhasil) toast('Hasil diagnosa disalin.', 'ok', 3000);
 }
 
 function showInstallHelp(ios) {
@@ -928,6 +1121,11 @@ function bind() {
   document.getElementById('cam-diagnose')?.addEventListener('toggle', (e) => {
     if (e.target.open) refreshCameraChecks().catch(() => {});
   });
+  document.getElementById('btn-db-test')?.addEventListener('click', testDb);
+  document.getElementById('btn-db-copy')?.addEventListener('click', copyDbDiag);
+  document.getElementById('db-diagnose')?.addEventListener('toggle', (e) => {
+    if (e.target.open) runDbChecks().catch(() => {});
+  });
   // kamera baru boleh dipakai setelah pengguna menyentuh layar (aturan peramban)
   window.addEventListener('beforeinstallprompt', (e) => {
     e.preventDefault();
@@ -979,6 +1177,9 @@ function bind() {
 }
 
 /* ============================================================== mulai */
+// diekspor agar bisa diuji otomatis (jsdom) tanpa menekan tombol
+export { runDbChecks, testDb, copyDbDiag, dbDiagText };
+
 async function main() {
   loadLocal();
   bind();
@@ -1004,6 +1205,7 @@ async function main() {
   app.classList.remove('hidden');
   setupInstallBanner();
   refreshCameraChecks().catch(() => {});
+  runDbChecks().catch(() => {});
 
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('./sw.js').then(() => refreshCameraChecks().catch(() => {}))

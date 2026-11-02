@@ -378,10 +378,32 @@ console.log('== 8. petugas.html — scan QR undangan');
   globalThis.__siti = siti;
   staff.$('#manual-token').value = `https://absensi-natal.test/?t=${siti.token}`;
   fire(staff, '#manual-scan-form');
+
+  // QR terbaca -> panel isian keluarga & konsumsi muncul DULU (belum tercatat hadir)
+  await until(() => staff.visible('scan-form'), { label: 'panel isian setelah scan' });
+  check('scan QR: panel isian keluarga & konsumsi muncul', staff.visible('scan-form'));
+  check('panel isian: nama peserta ditampilkan',
+    staff.text('#scan-form-title').includes('Siti Aminah'), staff.text('#scan-form-title'));
+  check('panel isian: jumlah keluarga bisa dipilih', Boolean(staff.$('#scan-family')));
+  check('panel isian: ada centang kupon makan & souvenir',
+    Boolean(staff.$('#scan-meal')) && Boolean(staff.$('#scan-souvenir')));
+  check('panel isian: belum ada yang masuk antrean sebelum disimpan',
+    Number(staff.text('#stat-queue')) === 0, staff.text('#stat-queue'));
+
+  // isi: 2 anggota keluarga + kupon + souvenir, lalu simpan
+  staff.$('#scan-family').value = '2';
+  staff.$('#scan-meal').checked = true;
+  staff.$('#scan-souvenir').checked = true;
+  click(staff, '#btn-scan-save');
+
   await until(() => staff.$('#scan-result').innerHTML.includes('Hadir tercatat'), { label: 'kartu hijau' });
   const html = staff.$('#scan-result').innerHTML;
   check('kartu hijau: nama peserta', html.includes('Siti Aminah'));
   check('kartu hijau: nomor undian besar', html.includes(String(siti.lottery_no).padStart(3, '0')));
+  check('kartu hijau: isian keluarga tampil di kartu', /2 anggota keluarga/i.test(html), html.slice(0, 260));
+  check('kartu hijau: kupon makan & souvenir tampil',
+    /Kupon makan/i.test(html) && /Souvenir/i.test(html), html.slice(0, 260));
+  check('panel isian tertutup setelah disimpan', !staff.visible('scan-form'));
   await until(() => Number(staff.text('#stat-queue')) === 1, { label: 'antrean 1' });
   check('aksi masuk antrean lokal', Number(staff.text('#stat-queue')) === 1);
 
@@ -430,6 +452,14 @@ console.log('== 9. petugas.html — tambah peserta saat OFFLINE');
     'select lottery_no from participants group by 1 having count(*) > 1')).length === 0);
   check('scan Siti tersimpan hadir',
     (await sql('select attended from participants where id=$1', [globalThis.__siti.id]))[0].attended === true);
+
+  // isian dari panel scan ikut tersimpan di server (keluarga, kupon, souvenir)
+  const sitiNow = (await sql(`select family_count, wants_meal, wants_souvenir
+     from participants where id=$1`, [globalThis.__siti.id]))[0];
+  check('isian scan: jumlah keluarga tersimpan di server', Number(sitiNow.family_count) === 2,
+    String(sitiNow.family_count));
+  check('isian scan: centang kupon makan tersimpan', sitiNow.wants_meal === true);
+  check('isian scan: centang souvenir tersimpan', sitiNow.wants_souvenir === true);
 }
 
 console.log('== 10. petugas.html — pencarian & Hadirkan');
@@ -440,6 +470,12 @@ console.log('== 10. petugas.html — pencarian & Hadirkan');
   await until(() => staff.$('#search-results').innerHTML.includes('Yohanes Sinaga'), { label: 'hasil cari' });
   check('pencarian nama menemukan peserta', true);
   await staff.window.document.querySelector('#search-results [data-action="attend"]').click();
+  // "Hadirkan" juga membuka panel isian keluarga & konsumsi
+  await until(() => staff.visible('scan-form'), { label: 'panel isian dari pencarian' });
+  check('tombol Hadirkan membuka panel isian keluarga & konsumsi', staff.text('#scan-form-title').includes('Yohanes'));
+  staff.$('#scan-family').value = '1';
+  staff.$('#scan-meal').checked = true;
+  click(staff, '#btn-scan-save');
   await until(() => Number(staff.text('#stat-queue')) >= 1, { label: 'antrean hadir' });
   check('tombol Hadirkan mencatat kehadiran', true);
   click(staff, '#btn-sync');
@@ -880,27 +916,21 @@ console.log('== 20. Form peserta — keluarga (maks 5), kupon makan & souvenir')
     page0.$('#walkin-form').textContent.includes('Kupon Makan') &&
     page0.$('#walkin-form').textContent.includes('Souvenir'));
 
+  check('tidak ada isian nama anggota keluarga di form',
+    page0.document.querySelectorAll('[data-family-name]').length === 0 &&
+    !page0.document.getElementById('family-names-wrap'));
+
   const sel = page0.$('#f-family');
   const pilih = (v) => {
     sel.value = v;
     sel.dispatchEvent(new page0.window.Event('change', { bubbles: true }));
   };
-  pilih('3');
-  await sleep(60);
-  check('kolom nama muncul sesuai jumlah',
-    page0.document.querySelectorAll('#family-names [data-family-name]').length === 3);
-  pilih('0');
-  await sleep(60);
-  check('kolom nama disembunyikan saat 0', page0.visible('family-names-wrap') === false);
 
   page0.$('#f-name').value = 'Ratna Keluarga';
   page0.$('#f-phone').value = '0813 4444 5555';
   page0.$('#f-org').value = 'Wilayah Medan Baru';
   pilih('2');
   await sleep(60);
-  const nameInputs = [...page0.document.querySelectorAll('#family-names [data-family-name]')];
-  nameInputs[0].value = 'Yosef';
-  nameInputs[1].value = 'Maria';
   page0.$('#f-meal').checked = true;
   page0.$('#f-souvenir').checked = false;
   fire(page0, '#walkin-form');
@@ -910,10 +940,8 @@ console.log('== 20. Form peserta — keluarga (maks 5), kupon makan & souvenir')
   check('jumlah keluarga tersimpan', row && row.family_count === 2, String(row && row.family_count));
   check('kupon makan tersimpan', row && row.wants_meal === true);
   check('souvenir tidak dicentang -> false', row && row.wants_souvenir === false);
-  const names = row
-    ? (await sql('select name from family_members where participant_id=$1 order by position', [row.id])).map((x) => x.name)
-    : [];
-  check('nama anggota keluarga tersimpan berurutan', names.join(',') === 'Yosef,Maria', names.join(','));
+  check('nama anggota keluarga tidak dicatat',
+    (await sql('select count(*)::int c from family_members where participant_id=$1', [row.id]))[0].c === 0);
 
   const extras = page0.$('#success-extras').textContent;
   check('layar sukses menampilkan jumlah keluarga', /2 anggota keluarga/.test(extras), extras);
@@ -921,12 +949,11 @@ console.log('== 20. Form peserta — keluarga (maks 5), kupon makan & souvenir')
   page0.close();
 
   const paksa = await rpc('walkin_register', {
-    p_name: 'Rombongan Besar', p_phone: '081355550000', p_org: null, p_family: 5,
-    p_meal: true, p_souvenir: true,
-    p_family_names: JSON.stringify(['A1', 'B2', 'C3', 'D4', 'E5', 'F6', 'G7'])
+    p_name: 'Rombongan Besar', p_phone: '081355550000', p_org: null, p_family: 9,
+    p_meal: true, p_souvenir: true
   });
-  const fam = await sql('select count(*)::int c from family_members where participant_id=$1', [paksa.id]);
-  check('server memotong anggota keluarga jadi 5', fam[0].c === 5, String(fam[0].c));
+  const paksaRow = (await sql('select family_count from participants where id=$1', [paksa.id]))[0];
+  check('server memotong jumlah keluarga jadi 5', paksaRow.family_count === 5, String(paksaRow.family_count));
 }
 
 console.log('== 21. Admin & petugas — kupon, souvenir, anggota keluarga');
@@ -955,16 +982,13 @@ console.log('== 21. Admin & petugas — kupon, souvenir, anggota keluarga');
 
   admin.document.querySelector(`#rekap-body [data-act="edit"][data-id="${vip.id}"]`)?.click();
   await until(() => admin.visible('dialog-edit'), { label: 'dialog edit' });
+  check('dialog edit tidak punya isian nama anggota keluarga', !admin.document.getElementById('e-family-names'));
   admin.$('#e-family').value = '2';
-  admin.$('#e-family-names').value = 'Sari, , sari, Bayu';
   admin.$('#e-meal').checked = false;
   admin.$('#e-souvenir').checked = true;
   fire(admin, '#edit-form');
   await until(async () => (await sql('select family_count from participants where id=$1', [vip.id]))[0].family_count === 2,
     { label: 'edit tersimpan' });
-  const names = (await sql('select name from family_members where participant_id=$1 order by position', [vip.id]))
-    .map((x) => x.name);
-  check('edit: nama keluarga dirapikan & duplikat dibuang', names.join(',') === 'Sari,Bayu', names.join(','));
   const vip2 = (await sql('select * from participants where id=$1', [vip.id]))[0];
   check('edit: kupon bisa dibatalkan', vip2.wants_meal === false && vip2.wants_souvenir === true);
 
@@ -996,8 +1020,9 @@ console.log('== 21. Admin & petugas — kupon, souvenir, anggota keluarga');
   }) : '';
   check('CSV memuat kolom Kupon Makan', /Kupon Makan/.test(csv));
   check('CSV memuat kolom Souvenir', /Souvenir/.test(csv));
-  check('CSV memuat kolom Anggota Keluarga', /Anggota Keluarga/.test(csv));
-  check('CSV berisi nama anggota keluarga', /Sari/.test(csv) && /Bayu/.test(csv), csv.slice(0, 160));
+  check('CSV tanpa kolom Anggota Keluarga', !/Anggota Keluarga/.test(csv));
+  check('CSV tetap memuat kolom Jumlah Keluarga', /Jumlah Keluarga/.test(csv));
+  check('CSV tidak lagi berisi nama anggota keluarga', !/Sari/.test(csv) && !/Bayu/.test(csv), csv.slice(0, 160));
 
   usePage(staff);
   click(staff, '#tab-tambah');
@@ -1042,14 +1067,12 @@ console.log('== 22. Undangan (QR kartu) — dropdown keluarga & checkbox kupon/s
   check('label undangan menyebut Kupon Makan & Souvenir',
     /Kupon Makan/.test(labelUndangan) && /Souvenir/.test(labelUndangan));
 
+  check('layar undangan tanpa isian nama anggota keluarga',
+    page.document.querySelectorAll('[data-family-name]').length === 0);
   const sel = page.$('#i-family');
   sel.value = '2';
   sel.dispatchEvent(new page.window.Event('change', { bubbles: true }));
   await sleep(60);
-  const boxes = [...page.document.querySelectorAll('#i-family-names [data-family-name]')];
-  check('kolom nama keluarga muncul di layar undangan', boxes.length === 2, String(boxes.length));
-  boxes[0].value = 'Hana';
-  boxes[1].value = 'Yosua';
   page.$('#i-meal').checked = true;
   page.$('#i-souvenir').checked = true;
 
@@ -1061,9 +1084,8 @@ console.log('== 22. Undangan (QR kartu) — dropdown keluarga & checkbox kupon/s
   check('undangan: jumlah keluarga tersimpan', row.family_count === 2, String(row.family_count));
   check('undangan: kupon makan & souvenir tersimpan',
     row.wants_meal === true && row.wants_souvenir === true);
-  const names = (await sql('select name from family_members where participant_id=$1 order by position', [tamu.id]))
-    .map((x) => x.name);
-  check('undangan: nama anggota keluarga tersimpan', names.join(',') === 'Hana,Yosua', names.join(','));
+  check('undangan: nama anggota keluarga tidak dicatat',
+    (await sql('select count(*)::int c from family_members where participant_id=$1', [tamu.id]))[0].c === 0);
 
   const extras = page.$('#success-extras').textContent;
   check('undangan: layar sukses menampilkan keluarga', /2 anggota keluarga/.test(extras), extras);
@@ -1087,9 +1109,9 @@ console.log('== 22. Undangan (QR kartu) — dropdown keluarga & checkbox kupon/s
     all.totals.meal >= 1 && all.totals.meal_with_family >= 3,
     JSON.stringify({ meal: all.totals.meal, mealFam: all.totals.meal_with_family }));
   const rec = all.participants.find((x) => x.id === tamu.id);
-  check('rekap admin memuat nama keluarga tamu undangan',
-    Array.isArray(rec.family_names) && rec.family_names.join(',') === 'Hana,Yosua',
-    JSON.stringify(rec.family_names));
+  check('rekap admin memuat jumlah keluarga tamu undangan',
+    rec.family_count === 2 && rec.family_names === undefined,
+    JSON.stringify({ fc: rec.family_count, fn: rec.family_names }));
 }
 
 

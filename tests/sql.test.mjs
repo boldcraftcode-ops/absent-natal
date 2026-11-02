@@ -129,18 +129,16 @@ results.push('== 3c. Konfirmasi undangan membawa keluarga, kupon & souvenir');
     || (await q(`select * from participants where name_norm = 'andreas tobing'`))[0];
   const maria = (await q(`select * from participants where name_norm = 'maria sinaga'`))[0];
   const a = await rpc('confirm_attendance', {
-    p_token: sitiU.token, p_family: 2, p_meal: true, p_souvenir: false,
-    p_family_names: JSON.stringify(['Teman Satu', 'Teman Dua'])
+    p_token: sitiU.token, p_family: 2, p_meal: true, p_souvenir: false
   });
   check('konfirmasi undangan berhasil', a.ok === true && a.status === 'ok', JSON.stringify(a));
   check('balasan memuat jumlah keluarga', a.family_count === 2, String(a.family_count));
   check('balasan memuat kupon makan & souvenir',
     a.wants_meal === true && a.wants_souvenir === false);
-  check('balasan memuat nama anggota keluarga',
-    Array.isArray(a.family_names) && a.family_names.join(',') === 'Teman Satu,Teman Dua',
+  check('balasan tidak lagi memuat nama anggota keluarga', a.family_names === undefined,
     JSON.stringify(a.family_names));
-  check('nama keluarga benar-benar tersimpan',
-    (await q('select count(*)::int c from family_members where participant_id=$1', [sitiU.id]))[0].c === 2);
+  check('jumlah keluarga benar-benar tersimpan',
+    (await q('select family_count from participants where id=$1', [sitiU.id]))[0].family_count === 2);
 
   // scan ulang (sudah hadir) tidak mengubah waktu, tetapi melengkapi kupon
   const before = (await q('select attended_at from participants where id=$1', [sitiU.id]))[0].attended_at;
@@ -150,7 +148,7 @@ results.push('== 3c. Konfirmasi undangan membawa keluarga, kupon & souvenir');
     String((await q('select attended_at from participants where id=$1', [sitiU.id]))[0].attended_at) === String(before));
   check('scan ulang: souvenir bisa dilengkapi tanpa membatalkan kupon makan',
     b.wants_souvenir === true && b.wants_meal === true);
-  check('scan ulang: nama keluarga tidak terhapus', b.family_count === 2, String(b.family_count));
+  check('scan ulang: jumlah keluarga tidak terhapus', b.family_count === 2, String(b.family_count));
 
   // undangan lain: tanpa keluarga & tanpa kupon
   const c = await rpc('confirm_attendance', { p_token: maria.token });
@@ -165,35 +163,27 @@ results.push('== 3b. Anggota keluarga (maks 5) & kupon makan/souvenir');
 {
   const r = await rpc('walkin_register', {
     p_name: 'Kelompok Besar', p_phone: '0819000001', p_org: 'Wilayah A', p_family: 3,
-    p_meal: true, p_souvenir: true,
-    p_family_names: JSON.stringify(['Ani', 'Beny', '  ', 'Ani', 'Citra', 'Dodi', 'Eka', 'Fani'])
+    p_meal: true, p_souvenir: true
   });
-  check('registrasi dengan keluarga & kupon', r.ok === true, JSON.stringify(r));
-  check('nama keluarga dibersihkan: kosong & duplikat dibuang, maks 5',
-    (await q(`select name from family_members where participant_id=$1 order by position`, [r.id])).rows
-      ?.length === undefined || true);
-  const fam = await q(`select name, position from family_members where participant_id=$1 order by position`, [r.id]);
-  check('anggota keluarga tersimpan maksimal 5', fam.length === 5, fam.map((f) => f.name).join(','));
-  check('urutan posisi 1..5 dan tanpa duplikat/kosong',
-    fam.map((f) => f.position).join(',') === '1,2,3,4,5' && fam.every((f) => f.name.trim().length >= 2),
-    JSON.stringify(fam));
-  check('duplikat nama dilewati', new Set(fam.map((f) => f.name.toLowerCase())).size === fam.length);
+  check('registrasi dengan jumlah keluarga & kupon', r.ok === true, JSON.stringify(r));
   const p = (await q(`select family_count, wants_meal, wants_souvenir from participants where id=$1`, [r.id]))[0];
-  check('family_count disamakan dengan jumlah nama', p.family_count === 5, String(p.family_count));
+  check('jumlah keluarga tersimpan', p.family_count === 3, String(p.family_count));
+  check('nama anggota keluarga tidak dicatat lagi',
+    (await q(`select count(*)::int c from family_members where participant_id=$1`, [r.id]))[0].c === 0);
   check('kupon makan & souvenir tersimpan', p.wants_meal === true && p.wants_souvenir === true);
 
   const r2 = await rpc('walkin_register', {
     p_name: 'Tanpa Kupon', p_phone: '0819000002', p_org: '', p_family: 2,
-    p_meal: false, p_souvenir: false, p_family_names: null
+    p_meal: false, p_souvenir: false
   });
-  check('tanpa nama keluarga: hanya hitungan yang disimpan',
+  check('tanpa kupon: hanya hitungan keluarga yang disimpan',
     (await q(`select family_count from participants where id=$1`, [r2.id]))[0].family_count === 2);
   check('tanpa centang kupon -> false semua',
     (await q(`select wants_meal, wants_souvenir from participants where id=$1`, [r2.id]))[0].wants_meal === false);
 
   const r3 = await rpc('walkin_register', {
     p_name: 'Keluarga Kebanyakan', p_phone: '0819000003', p_org: '', p_family: 9,
-    p_meal: true, p_souvenir: false, p_family_names: JSON.stringify(['A', 'B'])
+    p_meal: true, p_souvenir: false
   });
   const p3 = (await q(`select family_count from participants where id=$1`, [r3.id]))[0];
   check('permintaan > 5 dibatasi 5', p3.family_count <= 5, String(p3.family_count));
@@ -204,27 +194,26 @@ results.push('== 3b. Anggota keluarga (maks 5) & kupon makan/souvenir');
   });
   check('penggabungan memakai nomor yang sama', w.merged === true && w.lottery_no === r.lottery_no);
   const pAfter = (await q(`select family_count, wants_meal, wants_souvenir from participants where id=$1`, [r.id]))[0];
-  check('jumlah keluarga tidak turun setelah penggabungan', pAfter.family_count === 5, String(pAfter.family_count));
+  check('jumlah keluarga tidak turun setelah penggabungan', pAfter.family_count === 3, String(pAfter.family_count));
   check('centang kupon tetap tersimpan', pAfter.wants_meal === true && pAfter.wants_souvenir === true);
 
   const upd = await rpc('admin_update', {
     p_pin: 'admin1234', p_id: r2.id,
-    p_fields: JSON.stringify({ family_names: ['Satu', 'Dua'], family_count: 2, wants_meal: true, wants_souvenir: true })
+    p_fields: JSON.stringify({ family_count: 2, wants_meal: true, wants_souvenir: true })
   });
-  check('admin_update menyimpan anggota keluarga', upd.ok === true && upd.family_count === 2, JSON.stringify(upd));
+  check('admin_update menyimpan jumlah keluarga', upd.ok === true && upd.family_count === 2, JSON.stringify(upd));
   check('admin_update menyimpan kupon', upd.wants_meal === true && upd.wants_souvenir === true);
   const add = await rpc('admin_add', {
     p_pin: 'admin1234', p_name: 'Tamu Kupon', p_phone: '0819000004', p_org: 'Meja VIP',
-    p_family: 1, p_attended: true, p_invited: false, p_meal: true, p_souvenir: true,
-    p_family_names: JSON.stringify(['Istri'])
+    p_family: 1, p_attended: true, p_invited: false, p_meal: true, p_souvenir: true
   });
   check('admin_add menerima kupon & keluarga', add.ok === true && add.family_count === 1, JSON.stringify(add));
   check('admin_add menyimpan kupon', add.wants_meal === true && add.wants_souvenir === true);
 
   const all = await rpc('admin_get_all', { p_pin: 'admin1234' });
   const rec = all.participants.find((x) => x.id === r.id);
-  check('admin_get_all menyertakan daftar anggota keluarga',
-    Array.isArray(rec.family_names) && rec.family_names.length === 5, JSON.stringify(rec.family_names));
+  check('admin_get_all: nama anggota keluarga tidak dikirim lagi', rec.family_names === undefined);
+  check('admin_get_all menyertakan jumlah keluarga', rec.family_count === 3, String(rec.family_count));
   check('admin_get_all menyertakan ringkasan konsumsi',
     all.totals && typeof all.totals.meal === 'number' && all.totals.souvenir >= 1, JSON.stringify(all.totals));
 
@@ -238,20 +227,20 @@ results.push('== 3b. Anggota keluarga (maks 5) & kupon makan/souvenir');
     p_pin: 'staff1234', p_items: JSON.stringify([{
       id: 'fam-1', kind: 'new', name: 'Dari Petugas Keluarga', phone: '0819000005',
       org: 'Meja 3', family_count: 2, lottery_no: 1201, attended_at: '2026-12-24T18:40:00+07:00',
-      wants_meal: true, wants_souvenir: false, family_names: ['Anak Satu', 'Anak Dua']
+      wants_meal: true, wants_souvenir: false
     }])
   });
   const okSync = sy.results[0].status === 'ok';
   check('staff_sync menyimpan item new berkupon', okSync, JSON.stringify(sy.results[0]));
-  check('nama keluarga dari petugas tersimpan',
-    (await q('select count(*)::int c from family_members f join participants p on p.id=f.participant_id where p.name=$1',
-      ['Dari Petugas Keluarga']))[0].c === 2);
+  check('jumlah keluarga dari petugas tersimpan',
+    (await q("select family_count from participants where name='Dari Petugas Keluarga'"))[0].family_count === 2);
   check('jumlah peserta bertambah satu', (await q('select count(*)::int c from participants'))[0].c === before + 1);
 
-  // hapus peserta -> anggota keluarga ikut terhapus (cascade)
+  // hapus peserta tetap berjalan (tabel keluarga kosong, tidak ada yang menggantung)
   const pid = add.id;
-  await rpc('admin_delete', { p_pin: 'admin1234', p_id: pid });
-  check('hapus peserta menghapus anggota keluarganya',
+  const del = await rpc('admin_delete', { p_pin: 'admin1234', p_id: pid });
+  check('hapus peserta berhasil', del.ok === true, JSON.stringify(del));
+  check('tidak ada baris keluarga menggantung',
     (await q('select count(*)::int c from family_members where participant_id=$1', [pid]))[0].c === 0);
 }
 
@@ -322,6 +311,36 @@ const s3 = await rpc('staff_sync', { p_pin: 'staff1234', p_items: JSON.stringify
 check('dua petugas mencatat orang sama -> waktu paling awal dipakai',
   new Date(s3.results[0].attended_at).getUTCHours() === new Date('2026-12-24T17:00:00+07:00').getUTCHours(),
   JSON.stringify(s3.results[0]));
+// --------------------- 8c. staff_sync menyimpan isian keluarga/konsumsi
+results.push('== 8c. staff_sync + isian keluarga/konsumsi dari petugas');
+{
+  const tok = (await q("select token from participants where name='Budi Santoso'"))[0].token;
+  const items = JSON.stringify([{
+    id: 'uji-isian-1', kind: 'attend', token: tok,
+    family_count: 3, wants_meal: true, wants_souvenir: true,
+    attended_at: '2026-12-24T19:00:00+07:00'
+  }]);
+  const r = await rpc('staff_sync', { p_pin: 'staff1234', p_items: items });
+  check('sync isian: status ok', ['ok', 'already'].includes(r.results[0].status), JSON.stringify(r.results[0]));
+  const p = (await q("select id, family_count, wants_meal, wants_souvenir from participants where name='Budi Santoso'"))[0];
+  check('sync isian: family_count tersimpan', Number(p.family_count) === 3, String(p.family_count));
+  check('sync isian: kupon makan tersimpan', p.wants_meal === true);
+  check('sync isian: souvenir tersimpan', p.wants_souvenir === true);
+  check('sync isian: nama anggota keluarga tidak dicatat',
+    (await q('select count(*)::int c from family_members where participant_id=$1', [p.id]))[0].c === 0);
+
+  // staff_data mengirim jumlah keluarga agar petugas melihat isian awal
+  const sd = await rpc('staff_data', { p_pin: 'staff1234' });
+  const budi = sd.participants.find((x) => x.name === 'Budi Santoso');
+  check('staff_data menyertakan family_count',
+    Number(budi.family_count) === 3, String(budi.family_count));
+
+  // sync kedua (idempoten) tidak menghapus isian
+  await rpc('staff_sync', { p_pin: 'staff1234', p_items: items });
+  const p2 = (await q("select family_count from participants where name='Budi Santoso'"))[0];
+  check('sync ulang tidak menghapus isian keluarga', Number(p2.family_count) === 3, String(p2.family_count));
+}
+
 
 // ----------------------------------------------------- 7. absensi ditutup
 results.push('== 7. Absensi ditutup');
@@ -397,7 +416,7 @@ check('anon tidak bisa memanggil fungsi internal _check_pin', typeof internal ==
 const internal2 = await asRole('anon', () => q(`select public._claim_block(40)`).catch((e) => e.message));
 check('anon tidak bisa memanggil _claim_block', typeof internal2 === 'string' && /permission denied/i.test(internal2));
 const internal3 = await asRole('anon', () => q(`select public._register_walkin('a','0817','',0,'x',null)`).catch((e) => e.message));
-const internal4 = await asRole('anon', () => q(`select public._set_family(gen_random_uuid(), '[]'::jsonb, 0)`).catch((e) => e.message));
+const internal4 = await asRole('anon', () => q(`select public._set_family(gen_random_uuid(), 2)`).catch((e) => e.message));
 check('anon tidak bisa memanggil _set_family', typeof internal4 === 'string' && /permission denied/i.test(internal4));
 check('anon tidak bisa memanggil _register_walkin', typeof internal3 === 'string' && /permission denied/i.test(internal3));
 const pub = await asRole('anon', () => q(`select public.event_info() as r`));
@@ -406,6 +425,7 @@ const badPin = await asRole('anon', () => q(`select public.admin_get_all('admin1
 check('anon butuh PIN untuk fungsi admin (PIN benar tetap jalan)', badPin.length === 1);
 const insertAnon = await asRole('anon', () => q(`insert into public.participants (token,name,name_norm,lottery_no) values ('x','y','y',9999)`).catch((e) => e.message));
 check('anon tidak bisa insert ke tabel', typeof insertAnon === 'string' || insertAnon.length === 0);
+
 
 // --------------------------------------------------- 9. schema_check() & migrasi
 results.push('== 9. schema_check() + pelengkap kolom');

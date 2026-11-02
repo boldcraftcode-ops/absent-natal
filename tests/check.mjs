@@ -132,13 +132,23 @@ console.log('== Syarat PWA (petugas)');
     ['daftar periksa database', /id="db-check-list"/.test(html)],
     ['tombol tes database', /id="btn-db-test"/.test(html)],
     ['diagnosa memanggil runDbChecks', /runDbChecks/.test(readFileSync(join(root, 'js/petugas.js'), 'utf8'))],
+    // panel isian keluarga & konsumsi setelah scan QR
+    ['panel isian setelah scan ada', /id="scan-form"/.test(html)],
+    ['panel isian: dropdown keluarga', /id="scan-family"/.test(html)],
+    ['panel isian: centang kupon & souvenir', /id="scan-meal"/.test(html) && /id="scan-souvenir"/.test(html)],
+    ['panel isian: tombol simpan & batal', /id="btn-scan-save"/.test(html) && /id="btn-scan-cancel"/.test(html)],
+    ['scan memanggil showScanForm', /showScanForm\(/.test(readFileSync(join(root, 'js/petugas.js'), 'utf8'))],
     ['pesan schema cache dipisah dari schema.sql',
       /schema cache/i.test(readFileSync(join(root, 'api.js'), 'utf8'))],
     // kelengkapan database: schema_check() di skema + dipanggil aplikasi
     ['fungsi schema_check() ada di skema', /create or replace function public\.schema_check\(\)/.test(readFileSync(join(root, 'supabase/schema.sql'), 'utf8'))],
     ['schema_check() boleh dipanggil anon', /grant execute on function public\.schema_check\(\)\s+to anon/.test(readFileSync(join(root, 'supabase/schema.sql'), 'utf8'))],
     ['pelengkap kolom (add column if not exists) ada', /add column if not exists wants_souvenir/.test(readFileSync(join(root, 'supabase/schema.sql'), 'utf8'))],
-    ['aplikasi memanggil schemaCheck', /schemaCheck/.test(readFileSync(join(root, 'js/petugas.js'), 'utf8')) && /schema_check/.test(readFileSync(join(root, 'api.js'), 'utf8'))]
+    ['aplikasi memanggil schemaCheck', /schemaCheck/.test(readFileSync(join(root, 'js/petugas.js'), 'utf8')) && /schema_check/.test(readFileSync(join(root, 'api.js'), 'utf8'))],
+    // keputusan panitia: nama anggota keluarga tidak dicatat lagi
+    ['tanpa isian nama anggota keluarga di peserta', !/family-names|data-family-name/.test(readFileSync(join(root, 'index.html'), 'utf8'))],
+    ['tanpa isian nama anggota keluarga di petugas', !/family_names/.test(readFileSync(join(root, 'js/petugas.js'), 'utf8'))],
+    ['tanpa kolom Anggota Keluarga di ekspor admin', !/'Anggota Keluarga'/.test(readFileSync(join(root, 'js/admin.js'), 'utf8'))]
   ];
   for (const [nama, ok2] of perlu) {
     if (ok2) ok(`PWA: ${nama}`);

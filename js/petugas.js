@@ -35,7 +35,8 @@ const S = {
   lastScanAt: 0,
   syncing: false,
   tab: 'scan',
-  countdown: null
+  countdown: null,
+  pendingPerson: null   // peserta yang menunggu isian keluarga/konsumsi
 };
 
 /* =========================================================== penyimpanan */
@@ -192,14 +193,21 @@ function applyServerData(res) {
     lottery_no: p.lottery_no, attended: Boolean(p.attended),
     attended_at: p.attended_at || null, source: p.source || 'manual',
     wants_meal: Boolean(p.wants_meal), wants_souvenir: Boolean(p.wants_souvenir),
-    family_names: Array.isArray(p.family_names) ? p.family_names : []
+
   }));
 
   // Pertahankan aksi lokal yang belum tersinkron
   for (const item of S.queue) {
     if (item.kind === 'attend') {
       const p = incoming.find((x) => (item.token && x.token === item.token) || x.id === item.participant_id);
-      if (p) { p.attended = true; p.attended_at = p.attended_at || item.attended_at; }
+      if (p) {
+        p.attended = true;
+        p.attended_at = p.attended_at || item.attended_at;
+        // isian keluarga/kupon dari HP ini belum terkirim: jangan ditimpa data server
+        if (item.family_count !== undefined) p.family_count = item.family_count;
+        if (item.wants_meal !== undefined) p.wants_meal = Boolean(item.wants_meal);
+        if (item.wants_souvenir !== undefined) p.wants_souvenir = Boolean(item.wants_souvenir);
+      }
     } else if (item.kind === 'new') {
       if (!incoming.some((x) => x.lottery_no === item.lottery_no)) {
         incoming.push({
@@ -207,7 +215,7 @@ function applyServerData(res) {
           phone: item.phone || '', family_count: item.family_count || 0, invited: false,
           lottery_no: item.lottery_no, attended: true, attended_at: item.attended_at,
           source: 'petugas', wants_meal: Boolean(item.wants_meal),
-          wants_souvenir: Boolean(item.wants_souvenir), family_names: []
+          wants_souvenir: Boolean(item.wants_souvenir)
         });
       }
     }
@@ -728,11 +736,96 @@ function handleToken(token) {
     return;
   }
 
-  attendPerson(person, 'petugas');
+  // QR terbaca: petugas mengisi jumlah keluarga, kupon makan, dan souvenir dulu.
+  showScanForm(person);
 }
 
-function attendPerson(person, source) {
+/**
+ * Panel isian setelah QR/kode undangan terbaca.
+ * Nilai awal diambil dari pilihan peserta sendiri (bila sudah pernah mengisi).
+ */
+function showScanForm(person) {
+  S.pendingPerson = person;
+  const box = document.getElementById('scan-form');
+  if (!box) { attendPerson(person, 'petugas'); return; }   // cadangan bila markup tak ada
+
+  const fam = Math.max(0, Math.min(5, Number(person.family_count) || 0));
+
+  const title = document.getElementById('scan-form-title');
+  const sub = document.getElementById('scan-form-sub');
+  if (title) title.textContent = `Hadirkan ${person.name}`;
+  if (sub) {
+    sub.innerHTML = `Nomor undian <strong>${esc(pad3(person.lottery_no))}</strong>`
+      + `${person.org ? ' · ' + esc(person.org) : ''} — isi keluarga &amp; konsumsi, lalu simpan.`;
+  }
+
+  const people = document.getElementById('scan-form-people');
+  if (people) {
+    people.innerHTML = `
+      <div class="check-row" style="pointer-events:none">
+        <span class="check-row__box" aria-hidden="true">👤</span>
+        <span class="check-row__text"><strong>${esc(person.name)}</strong>
+          <span>${esc(person.org || 'tanpa asal')}${person.phone ? ' · ' + esc(person.phone) : ''}</span></span>
+      </div>
+      ${fam > 0 ? `<div class="check-row" style="pointer-events:none">
+        <span class="check-row__box" aria-hidden="true">👨‍👩‍👧</span>
+        <span class="check-row__text"><strong>Keluarga yang ikut</strong>
+          <span>${fam} orang</span></span>
+      </div>` : ''}`;
+  }
+
+  const famInput = document.getElementById('scan-family');
+  if (famInput) famInput.value = String(fam);
+  const meal = document.getElementById('scan-meal');
+  const souv = document.getElementById('scan-souvenir');
+  if (meal) meal.checked = Boolean(person.wants_meal);
+  if (souv) souv.checked = Boolean(person.wants_souvenir);
+
+  const note = document.getElementById('scan-form-note');
+  if (note) {
+    note.textContent = (person.wants_meal || person.wants_souvenir || fam > 0)
+      ? 'Nilai di atas berasal dari isian peserta saat konfirmasi. Ubah bila berbeda.'
+      : 'Isian ini menentukan jumlah kupon makan dan souvenir yang diberikan.';
+  }
+
+  box.classList.remove('hidden');
+  const res = document.getElementById('scan-result');
+  if (res) { res.classList.add('hidden'); res.innerHTML = ''; }
+  box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  clearTimeout(resetTimer);
+}
+
+/** Tutup panel isian (tanpa mencatat kehadiran). */
+function hideScanForm() {
+  const box = document.getElementById('scan-form');
+  if (box) box.classList.add('hidden');
+  S.pendingPerson = null;
+  // QR yang sama boleh dipindai lagi setelah dibatalkan
+  S.lastScan = '';
+  S.lastScanAt = 0;
+}
+
+/** Tombol "Simpan & Hadirkan". */
+function saveScanForm() {
+  const person = S.pendingPerson;
+  if (!person) { hideScanForm(); return; }
+  const fam = Math.max(0, Math.min(5, Number(document.getElementById('scan-family')?.value || 0)));
+  const meal = Boolean(document.getElementById('scan-meal')?.checked);
+  const souv = Boolean(document.getElementById('scan-souvenir')?.checked);
+  hideScanForm();
+  attendPerson(person, 'petugas', { family_count: fam, wants_meal: meal, wants_souvenir: souv });
+}
+
+function attendPerson(person, source, extras = {}) {
   const at = new Date().toISOString();
+
+  // isian dari panel scan (keluarga, kupon makan, souvenir)
+  if (extras.family_count !== undefined) {
+    person.family_count = Math.max(0, Math.min(5, Number(extras.family_count) || 0));
+  }
+  if (extras.wants_meal !== undefined) person.wants_meal = Boolean(extras.wants_meal);
+  if (extras.wants_souvenir !== undefined) person.wants_souvenir = Boolean(extras.wants_souvenir);
+
   person.attended = true;
   person.attended_at = at;
   person.source = source;
@@ -746,7 +839,10 @@ function attendPerson(person, source) {
     name: person.name,
     lottery_no: person.lottery_no,
     attended_at: at,
-    source
+    source,
+    family_count: person.family_count || 0,
+    wants_meal: Boolean(person.wants_meal),
+    wants_souvenir: Boolean(person.wants_souvenir)
   });
 
   addLog({ name: person.name, lottery_no: person.lottery_no, at, status: 'ok' });
@@ -796,10 +892,7 @@ function extrasLine(person) {
   if (!person) return '';
   const bits = [];
   const fam = Number(person.family_count) || 0;
-  if (fam > 0) {
-    const names = Array.isArray(person.family_names) ? person.family_names : [];
-    bits.push(`👨‍👩‍👧 ${fam} keluarga${names.length ? ` (${esc(names.join(', '))})` : ''}`);
-  }
+  if (fam > 0) bits.push(`👨‍👩‍👧 ${fam} anggota keluarga`);
   if (person.wants_meal) bits.push('🍱 Kupon makan');
   if (person.wants_souvenir) bits.push('🎁 Souvenir');
   return bits.join(' · ');
@@ -936,7 +1029,7 @@ async function submitAdd(ev) {
   S.people.push({
     id: localId, token, name, org, phone, family_count: family, invited: false,
     lottery_no: no, attended: true, attended_at: at, source: 'petugas', pending: true,
-    wants_meal: meal, wants_souvenir: souvenir, family_names: []
+    wants_meal: meal, wants_souvenir: souvenir
   });
   S.people.sort((a, b) => a.lottery_no - b.lottery_no);
   save.people();
@@ -1003,8 +1096,7 @@ async function syncNow(silent = false) {
       attended_at: q.attended_at || null,
       source: q.source || 'petugas',
       wants_meal: Boolean(q.wants_meal),
-      wants_souvenir: Boolean(q.wants_souvenir),
-      family_names: Array.isArray(q.family_names) ? q.family_names : null
+      wants_souvenir: Boolean(q.wants_souvenir)
     }));
 
     const res = await api.staffSync(S.pin, batch);
@@ -1102,6 +1194,7 @@ function startCountdown() {
 
 /* ================================================================ tab */
 function switchTab(tab, startCam = true) {
+  if (tab !== 'scan' && S.pendingPerson) hideScanForm();
   S.tab = tab;
   store.set(K.tab, tab);
   const map = { scan: 'panel-scan', cari: 'panel-cari', tambah: 'panel-tambah' };
@@ -1184,8 +1277,11 @@ function bind() {
     const btn = e.target.closest('[data-action="attend"]');
     if (!btn) return;
     const person = S.people.find((p) => p.id === btn.dataset.id);
-    if (person) attendPerson(person, 'petugas');
+    if (person) { switchTab('scan'); showScanForm(person); }
   });
+
+  document.getElementById('btn-scan-save')?.addEventListener('click', saveScanForm);
+  document.getElementById('btn-scan-cancel')?.addEventListener('click', hideScanForm);
 
   document.getElementById('add-form')?.addEventListener('submit', submitAdd);
 
@@ -1210,7 +1306,7 @@ function bind() {
 
 /* ============================================================== mulai */
 // diekspor agar bisa diuji otomatis (jsdom) tanpa menekan tombol
-export { runDbChecks, testDb, copyDbDiag, dbDiagText };
+export { runDbChecks, testDb, copyDbDiag, dbDiagText, showScanForm, saveScanForm, hideScanForm };
 
 async function main() {
   loadLocal();

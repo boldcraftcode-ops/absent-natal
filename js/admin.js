@@ -137,33 +137,12 @@ function renderAll() {
   renderSettings();
 }
 
-/* ================================================ keluarga & konsumsi */
-/** "Ani, Budi ,, Citra" -> ['Ani','Budi','Citra'] (maks 5, tanpa duplikat). */
-function parseNames(raw) {
-  const out = [];
-  const seen = new Set();
-  for (const part of String(raw || '').split(/[,;\n]/)) {
-    const name = part.trim().replace(/\s+/g, ' ');
-    if (name.length < 2) continue;
-    const key = name.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(name);
-    if (out.length === 5) break;
-  }
-  return out;
-}
-
 /** Label ringkas "🍱 Makan · 🎁 Souvenir · 👨‍👩‍👧 2 keluarga". */
 function extrasLabel(p) {
   const bits = [];
   if (p.wants_meal) bits.push('🍱 Makan');
   if (p.wants_souvenir) bits.push('🎁 Souvenir');
-  if (p.family_count > 0) {
-    const names = Array.isArray(p.family_names) ? p.family_names : [];
-    const tip = names.length ? ` title="${esc(names.join(', '))}"` : '';
-    bits.push(`<span${tip}>👨‍👩‍👧 ${p.family_count}</span>`);
-  }
+  if (p.family_count > 0) bits.push(`👨‍👩‍👧 ${p.family_count}`);
   return bits.length ? bits.join(' · ') : '—';
 }
 
@@ -686,7 +665,6 @@ function csvRows() {
     Asal: p.org || '',
     'No. HP': p.phone || '',
     'Jumlah Keluarga': p.family_count || 0,
-    'Anggota Keluarga': Array.isArray(p.family_names) ? p.family_names.join(', ') : '',
     'Kupon Makan': p.wants_meal ? 'Ya' : 'Tidak',
     'Souvenir': p.wants_souvenir ? 'Ya' : 'Tidak',
     'Jenis': p.invited ? 'Undangan' : 'Tanpa undangan',
@@ -995,7 +973,6 @@ function openEditDialog(id) {
   document.getElementById('e-phone').value = p.phone || '';
   document.getElementById('e-org').value = p.org || '';
   document.getElementById('e-family').value = String(Math.min(5, p.family_count || 0));
-  document.getElementById('e-family-names').value = Array.isArray(p.family_names) ? p.family_names.join(', ') : '';
   document.getElementById('e-meal').checked = Boolean(p.wants_meal);
   document.getElementById('e-souvenir').checked = Boolean(p.wants_souvenir);
   document.getElementById('edit-error').classList.add('hidden');
@@ -1011,7 +988,7 @@ async function submitEdit(ev) {
     phone: document.getElementById('e-phone').value.trim(),
     org: document.getElementById('e-org').value.trim(),
     family_count: Math.min(5, Number(document.getElementById('e-family').value || 0)),
-    family_names: parseNames(document.getElementById('e-family-names').value),
+    family_names: null,     // nama anggota keluarga tidak lagi dicatat
     wants_meal: document.getElementById('e-meal').checked,
     wants_souvenir: document.getElementById('e-souvenir').checked
   };

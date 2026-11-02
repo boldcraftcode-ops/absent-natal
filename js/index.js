@@ -156,47 +156,15 @@ function renderOffline() {
   show('offline');
 }
 
-/* --------------------------------- anggota keluarga & kupon/souvenir */
-/** Buat kolom nama sesuai jumlah anggota keluarga yang dipilih (maks 5).
- *  `boxId` menunjuk kontainer milik form yang sedang dipakai. */
-function renderFamilyInputs(count, boxId = 'family-names') {
-  // kontainer contoh: '#family-names' -> '#family-names-wrap'
-  const wrap = document.getElementById(`${boxId.replace(/^#/, '')}-wrap`);
-  const box = document.querySelector(boxId.startsWith('#') ? boxId : `#${boxId}`);
-  if (!wrap || !box) return;
-
-  const n = Math.max(0, Math.min(5, Number(count) || 0));
-  wrap.classList.toggle('hidden', n === 0);
-  if (n === 0) { box.innerHTML = ''; return; }
-
-  // pertahankan isian yang sudah diketik saat jumlah diubah
-  const existing = [...box.querySelectorAll('input')].map((i) => i.value);
-  box.innerHTML = Array.from({ length: n }, (_, i) => `
-    <label class="field" style="margin:0">
-      <div class="family-input-wrap">
-        <span class="family-num">${i + 1}.</span>
-        <input class="input" data-family-name maxlength="60" autocomplete="off"
-               placeholder="Nama anggota keluarga ${i + 1}" value="${existing[i] ? existing[i].replace(/"/g, '&quot;') : ''}">
-      </div>
-    </label>`).join('');
-}
-
-function readFamilyNames(boxId = 'family-names') {
-  const root = document.querySelector(boxId.startsWith('#') ? boxId : `#${boxId}`);
-  if (!root) return [];
-  return [...root.querySelectorAll('[data-family-name]')]
-    .map((i) => i.value.trim())
-    .filter((v) => v.length >= 2);
-}
-
-/** Baca pilihan keluarga + kupon + souvenir dari satu form. */
-function readExtras(prefix, boxId = 'family-names') {
+/* --------------------------------- jumlah keluarga & kupon/souvenir */
+/** Baca pilihan jumlah anggota keluarga + kupon + souvenir dari satu form.
+ *  Nama anggota keluarga tidak lagi diminta; jumlahnya saja yang dicatat. */
+function readExtras(prefix) {
   const val = (id) => document.getElementById(id);
   return {
     family: Math.min(5, Number(val(`${prefix}family`)?.value || 0)),
     meal: Boolean(val(`${prefix}meal`)?.checked),
-    souvenir: Boolean(val(`${prefix}souvenir`)?.checked),
-    familyNames: readFamilyNames(boxId)
+    souvenir: Boolean(val(`${prefix}souvenir`)?.checked)
   };
 }
 
@@ -250,7 +218,7 @@ async function confirmAttendance() {
   btn.disabled = true;
   btn.textContent = 'Memproses…';
   try {
-    const extras = readExtras('i-', 'i-family-names');
+    const extras = readExtras('i-');
     const res = await api.confirmAttendance(S.token, extras);
     setNet(true);
 
@@ -305,7 +273,7 @@ async function submitWalkin(ev) {
   const phoneRaw = document.getElementById('f-phone').value.trim();
   const phone = normPhone(phoneRaw);
   const org = document.getElementById('f-org').value.trim();
-  const { family, meal, souvenir, familyNames } = readExtras('f-', 'family-names');
+  const { family, meal, souvenir } = readExtras('f-');
 
   if (name.length < 2) {
     toast('Nama lengkap wajib diisi (minimal 2 huruf).', 'err');
@@ -324,7 +292,7 @@ async function submitWalkin(ev) {
   btn.textContent = 'Memproses…';
 
   try {
-    const res = await api.walkinRegister(name, phone, org, family, meal, souvenir, familyNames);
+    const res = await api.walkinRegister(name, phone, org, family, meal, souvenir);
     setNet(true);
 
     if (res?.ok === false) {
@@ -376,10 +344,6 @@ async function submitWalkin(ev) {
 /* ------------------------------------------------------------------ event */
 function bind() {
   document.getElementById('btn-confirm')?.addEventListener('click', confirmAttendance);
-  document.getElementById('f-family')?.addEventListener('change',
-    (e) => renderFamilyInputs(e.target.value, 'family-names'));
-  document.getElementById('i-family')?.addEventListener('change',
-    (e) => renderFamilyInputs(e.target.value, 'i-family-names'));
   document.getElementById('walkin-form')?.addEventListener('submit', submitWalkin);
   document.getElementById('btn-retry')?.addEventListener('click', () => boot());
   document.getElementById('btn-retry2')?.addEventListener('click', () => boot());

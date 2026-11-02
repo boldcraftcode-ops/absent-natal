@@ -58,10 +58,12 @@ function friendly(status, payload, fn) {
   }
 
   // Tabel/kolom hilang = skema memang perlu dijalankan ulang (bukan cache API).
+  // Rincian aslinya ikut ditampilkan supaya tidak perlu membaca konsol di HP.
   if (/relation .* does not exist|column .* does not exist|table .* does not exist/i.test(raw) &&
       !isMissingFunction(raw)) {
+    const rinci = raw.replace(/\s+/g, ' ').slice(0, 120);
     return 'Tabel/kolom database belum lengkap. Jalankan ulang supabase/schema.sql versi terbaru '
-      + 'di Supabase (SQL Editor → tempel → Run).';
+      + `di Supabase (SQL Editor → tempel → Run). Rincian: ${rinci}`;
   }
 
   if (isMissingFunction(raw)) {
@@ -195,6 +197,7 @@ export const api = {
     }),
 
   // petugas
+  schemaCheck: () => rpc('schema_check', {}),
   staffData: (pin) => rpc('staff_data', { p_pin: pin }),
   staffClaimNumbers: (pin, size = 40) => rpc('staff_claim_numbers', { p_pin: pin, p_size: size }),
   staffSync: (pin, items) => rpc('staff_sync', { p_pin: pin, p_items: items }),

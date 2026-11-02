@@ -294,7 +294,8 @@ Aturan penting yang sudah diterapkan:
 | “Aplikasi belum dikonfigurasi” | `config.js` belum diisi atau gagal dimuat (cek konsol). |
 | **“Fungsi … ada di database tetapi belum dikenali API Supabase (schema cache)”** | Skema **sudah** jalan, hanya cache API-nya belum diperbarui. Buka **Dashboard Supabase → Project Settings → API → “Reload schema cache”**, tunggu ±1 menit, muat ulang halaman. |
 | “Fungsi … belum terpasang. Jalankan supabase/schema.sql” | Anda memakai **project Supabase yang berbeda** dari `config.js`, atau skema belum pernah dijalankan di project itu. Jalankan `supabase/schema.sql` di project yang alamatnya ada di `config.js`. |
-| “Tabel/kolom database belum lengkap” | `supabase/schema.sql` versi lama. Jalankan ulang berkas versi terbaru (aman diulang). |
+| **“Tabel/kolom database belum lengkap … Rincian: column p.wants_souvenir does not exist”** | Database dibuat dengan **versi skema lebih lama** (tabelnya ada, kolom barunya belum). Jalankan `supabase/schema.sql` versi terbaru — berkas ini **aman diulang** karena bagian **2b/2c** menambahkan kolom & indeks yang belum ada (`add column if not exists`) sebelum fungsi dibuat. |
+| Ingin memastikan database lengkap | Jalankan `select public.schema_check();` di SQL Editor. `{"ok": true}` = lengkap. Aplikasi petugas juga memeriksanya otomatis di panel **🩺 Periksa sambungan & database**. |
 | “PIN salah” padahal benar | PIN sudah diganti; atau project berbeda. Coba PIN dari perangkat lain. |
 | Kamera tidak muncul | Halaman harus HTTPS + izin kamera. Gunakan tab **Cari**. |
 | QR mengarah ke alamat aneh | Isi **Domain untuk QR** di admin (bukan alamat pratinjau Netlify). |
@@ -302,6 +303,35 @@ Aturan penting yang sudah diterapkan:
 | Halaman peserta basi setelah update | Service Worker menyimpan versi lama. Muat ulang 2×, atau tunggu ±1 menit. |
 | Peserta “tidak ditemukan” | Token undangan salah/cetakan lama. Cari manual di admin/petugas. |
 | **“Gagal memproses permintaan: DELETE requires a WHERE clause”** saat *Reset semua* / *Reset absensi* | Ekstensi pengaman database (mis. `safeupdate`) menolak `DELETE`/`UPDATE` tanpa `WHERE`. Sudah diperbaiki: **semua** `DELETE`/`UPDATE` di fungsi memakai `WHERE` eksplisit (reset menyeluruh memakai bentuk yang selalu benar, mis. `where id is not null or true`). Bila masih muncul, `supabase/schema.sql` di project Anda masih versi lama — jalankan ulang berkas itu (aman diulang). Uji: `cd tests && node sql.test.mjs` bagian **8b**. |
+
+### 11.0 Skema berubah? Jalankan ulang `supabase/schema.sql` (aman, tidak menghapus data)
+
+Berkas `supabase/schema.sql` **selalu boleh dijalankan ulang** di database yang sudah
+berisi data. Bagian yang membuatnya aman:
+
+| Bagian | Isi | Kenapa aman |
+|---|---|---|
+| 1 | `create table if not exists` | tabel yang sudah ada dilewati, data tidak disentuh |
+| 2 | `insert … on conflict do nothing` | PIN & nama acara yang sudah diganti tidak ditimpa |
+| **2b** | `alter table … add column if not exists` | menambahkan kolom baru (mis. `wants_souvenir`, `family_members`, `source`) ke tabel versi lama |
+| **2c** | `create index if not exists` | indeks dibuat setelah kolom lengkap, jadi tidak gagal di database lama |
+| 3–6b | `create or replace function` | fungsi lama diganti versi baru |
+| 7 | `revoke`/`grant` | hak akses disetel ulang, tetap sama |
+
+Cara memastikan: di **SQL Editor** jalankan
+
+```sql
+select public.schema_check();
+-- {"ok": true, "missing_tables": [], "missing_columns": [], "missing_functions": [], ...}
+```
+
+Bila ada yang hilang, hasilnya menyebut nama tabel/kolom/fungsi yang belum ada, mis.
+`{"ok": false, "missing_columns": ["participants.wants_souvenir"]}`. Setelah skema
+dijalankan ulang, panggil lagi sampai `ok: true`, lalu muat ulang halaman aplikasi.
+
+> **Aplikasi ikut memeriksa otomatis.** Panel **🩺 Periksa sambungan & database** di
+> layar login `petugas.html` memanggil `schema_check()` dan menampilkan daftar bagian yang
+> belum ada — tanpa perlu membuka SQL Editor.
 
 ### 11.1 Panel “Periksa sambungan & database” (layar login petugas)
 

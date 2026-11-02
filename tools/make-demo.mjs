@@ -273,6 +273,7 @@ ${css}
             <li style="color:var(--olive-700)">✅ Kunci API: sb_publishab… (publishable)</li>
             <li style="color:var(--olive-700)">✅ Server Supabase terhubung (HTTP 200)</li>
             <li style="color:var(--olive-700)">✅ Fungsi event_info() jalan — acara: Perayaan Natal 2026</li>
+            <li style="color:var(--olive-700)">✅ Struktur tabel &amp; fungsi database lengkap</li>
             <li style="color:var(--cran-800)">❌ Fungsi staff_data() gagal dipanggil.
               <div class="small" style="color:var(--ink-soft)">Contoh pesan bila schema cache belum diperbarui
               → tekan “Reload schema cache” di Dashboard Supabase, tunggu ±1 menit, lalu tes lagi.</div>

@@ -510,6 +510,11 @@ async function runDbChecks(opts = {}) {
     } catch (e) {
       if (e?.code === 'offline' || e?.code === 'timeout') {
         tambah('bad', `Tidak bisa memanggil fungsi database (${e?.code === 'timeout' ? 'waktu habis' : 'offline'})`);
+      } else if (/column|relation|table .*does not exist/i.test(e?.message || '')) {
+        tambah('bad', e?.message || 'Tabel/kolom database belum lengkap.',
+          'Struktur tabel di proyek Supabase Anda masih versi lama. Jalankan supabase/schema.sql '
+          + 'versi terbaru di SQL Editor → Run. Berkas versi ini aman diulang (kolom yang belum ada '
+          + 'ditambahkan otomatis).');
       } else {
         tambah('bad', e?.message || 'Fungsi event_info() gagal dipanggil.',
           'Ini pesan asli Supabase. Bila menyebut “schema cache”, tekan Reload schema cache di '
@@ -534,7 +539,34 @@ async function runDbChecks(opts = {}) {
     }
   }
 
-  // 6. data lokal
+  // 6. kelengkapan struktur (schema_check) — hanya bila server bisa dihubungi
+  if (url && key && !rows.some((r) => r.status === 'bad' && /Server Supabase/i.test(r.teks))) {
+    try {
+      const cek = await api.schemaCheck();
+      if (cek?.ok === true) {
+        tambah('ok', 'Struktur tabel & fungsi database lengkap');
+      } else if (cek && typeof cek === 'object') {
+        const kurang = [
+          ...(cek.missing_tables || []).map((t) => `tabel ${t}`),
+          ...(cek.missing_columns || []).map((c) => `kolom ${c}`),
+          ...(cek.missing_functions || []).map((f) => `fungsi ${f}`)
+        ];
+        tambah('bad', `Bagian database belum ada: ${kurang.slice(0, 8).join(', ')}`
+          + (kurang.length > 8 ? `, +${kurang.length - 8} lagi` : ''),
+          'Jalankan supabase/schema.sql versi terbaru di SQL Editor → Run, lalu tekan “Tes sekarang”.');
+      }
+    } catch (e) {
+      // schema_check() sendiri belum ada -> berarti skema di server memang versi lama
+      if (/schema cache|tidak dikenali/i.test(e?.message || '')) {
+        tambah('warn', 'Fungsi pemeriksa schema_check() belum ada (skema versi lama)',
+          'Jalankan supabase/schema.sql versi terbaru agar pemeriksaan otomatis bisa berjalan.');
+      } else if (e?.code !== 'offline') {
+        tambah('warn', e?.message || 'Pemeriksaan struktur database tidak bisa dijalankan.');
+      }
+    }
+  }
+
+  // 7. data lokal
   tambah(S.people.length ? 'ok' : 'warn',
     `${S.people.length} peserta tersimpan di HP ini`,
     S.people.length ? '' : 'Belum ada data lokal: login pertama memang perlu internet.');

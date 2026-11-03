@@ -13,6 +13,7 @@ import { JSDOM, VirtualConsole } from 'jsdom';
 import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
+const pad3 = (n) => String(Number(n) || 0).padStart(3, '0');
 
 const here = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(here, '..');
@@ -128,6 +129,41 @@ async function runPage(file, { query = '', fetch: fetchImpl, storage = {}, befor
         w.HTMLDialogElement.prototype.close = function () { this.removeAttribute('open'); };
       }
       w.HTMLAnchorElement.prototype.click = function () { w.__downloaded = this.download; };
+      // jsdom tidak punya Web Audio: tiru AudioContext yang mencatat bunyi yang dibuat
+      w.__audio = { osc: 0, buffer: 0, frekuensi: [], state: 'running', master: [] };
+      class FakeParam {
+        constructor(v = 1) { this.value = v; }
+        setValueAtTime(v) { this.value = v; return this; }
+        exponentialRampToValueAtTime(v) { this.value = v; return this; }
+        linearRampToValueAtTime(v) { this.value = v; return this; }
+        cancelScheduledValues() { return this; }
+      }
+      class FakeNode {
+        constructor(tipe) { this.tipe = tipe; this.gain = new FakeParam(1); this.frequency = new FakeParam(440); this.Q = new FakeParam(1); this.type = 'sine'; }
+        connect(n) { return n; }
+        start() {}
+        stop() {}
+      }
+      w.AudioContext = class FakeAudioContext {
+        constructor() { this.state = 'running'; this.sampleRate = 48000; this.destination = new FakeNode('dest'); }
+        get currentTime() { return 0; }
+        resume() { this.state = 'running'; return Promise.resolve(); }
+        suspend() { this.state = 'suspended'; return Promise.resolve(); }
+        close() { this.state = 'closed'; return Promise.resolve(); }
+        createGain() { const n = new FakeNode('gain'); w.__audio.master.push(n); return n; }
+        createOscillator() {
+          const n = new FakeNode('osc');
+          w.__audio.osc += 1;
+          n.frequency = new FakeParam(440);
+          Object.defineProperty(n, 'frequency', {
+            get: () => ({ setValueAtTime: (v) => { w.__audio.frekuensi.push(v); }, exponentialRampToValueAtTime: () => {} })
+          });
+          return n;
+        }
+        createBuffer(ch, len) { w.__audio.buffer += 1; return { getChannelData: () => new Float32Array(len) }; }
+        createBufferSource() { return new FakeNode('buffer'); }
+        createBiquadFilter() { return new FakeNode('filter'); }
+      };
       // rekam isi unduhan agar kolom ekspor bisa diperiksa
       const revoke = w.URL.revokeObjectURL;
       w.__blobText = w.__blobText || {};
@@ -156,12 +192,29 @@ async function runPage(file, { query = '', fetch: fetchImpl, storage = {}, befor
           putImageData() {}, moveTo() {}, lineTo() {}, stroke() {},
           beginPath() {}, closePath() {},
           arc() { calls.arc++; },
-          fill() { calls.fill++; }
+          fill() { calls.fill++; },
+          save() {}, restore() {}, clip() {}, rect() {}, bezierCurveTo() {},
+          quadraticCurveTo() {}, fillText() { calls.fill++; }, strokeText() {},
+          measureText: (t) => ({ width: String(t).length * 6 }),
+          createLinearGradient: () => ({ addColorStop() {} }),
+          setLineDash() {}, drawImage() { calls.fill++; },
+          font: '', textAlign: '', textBaseline: ''
         };
       };
-      w.HTMLCanvasElement.prototype.toDataURL = function () {
-        return `data:image/png;base64,RAW${this.width}x${this.height}`;
+      w.HTMLCanvasElement.prototype.toDataURL = function (jenis) {
+        return `data:${jenis || 'image/png'};base64,RAW${this.width}x${this.height}`;
       };
+      // jsdom tidak memuat gambar: tiru <img> yang langsung selesai dimuat
+      w.Image = class FakeImage {
+        constructor() { this.width = 480; this.height = 480; this.naturalWidth = 480; this.complete = true; }
+        set src(v) { this._src = v; setTimeout(() => this.onload && this.onload(), 0); }
+        get src() { return this._src; }
+      };
+      w.HTMLCanvasElement.prototype.toBlob = function (cb, jenis) {
+        cb(new w.Blob([`RAW${this.width}x${this.height}`], { type: jenis || 'image/png' }));
+      };
+      // metrik teks tiruan untuk pratinjau JPG kartu undangan
+      w.CanvasRenderingContext2D = w.CanvasRenderingContext2D || function () {};
       if (!w.requestAnimationFrame) w.requestAnimationFrame = (cb) => setTimeout(() => cb(Date.now()), 4);
       for (const [k, v] of Object.entries(storage)) w.localStorage.setItem(k, JSON.stringify(v));
     }
@@ -280,10 +333,11 @@ console.log('== 1. Persiapan data');
     p_rows: JSON.stringify([
       { name: 'Budi Santoso', phone: '081234567890', org: 'Divisi TI' },
       { name: 'Siti Aminah', phone: '081311112222', org: 'Keuangan' },
-      { name: 'Yohanes Sinaga', phone: '', org: 'Medan' }
+      { name: 'Yohanes Sinaga', phone: '', org: 'Medan' },
+      { name: 'Lupa Bawa Kartu', phone: '081377770000', org: 'Wilayah Medan Kota' }
     ])
   });
-  check('import 3 undangan', r.inserted === 3, JSON.stringify(r));
+  check('import 4 undangan', r.inserted === 4, JSON.stringify(r));
   await rpc('admin_prize_save', { p_pin: 'admin1234', p_name: 'Kulkas', p_qty: 2, p_id: null, p_order: 1 });
   const budi = (await sql("select * from participants where name='Budi Santoso'"))[0];
   check('token 16 hex', /^[0-9a-f]{16}$/.test(budi.token), budi.token);
@@ -448,6 +502,62 @@ console.log('== 9. petugas.html — tambah peserta saat OFFLINE');
   staff.$('#add-org').value = 'Meja 2';
   fire(staff, '#add-form');
   await until(() => /Peserta ditambahkan/.test(staff.$('#add-result').innerHTML), { label: 'kartu tambah' });
+
+  // tamu lupa membawa kartu QR: pilih namanya dari daftar undangan di tab Tambah
+  {
+    staff.document.querySelector('#tab-tambah')?.click();
+    await sleep(200);
+    const jumlahSebelum = Number(staff.text('#stat-total'));
+    // peserta undangan yang belum hadir: baca dari <option> dropdown (data lokal HP petugas)
+    const opsi = [...staff.document.querySelectorAll('#add-invited option')].slice(1);
+    // hindari peserta yang dipakai uji lain sesudah ini (pencarian & panel scan)
+    const kandidat = opsi.filter((o) => !/sudah hadir/.test(o.textContent))
+      .map((o) => ({ id: o.value, label: o.textContent }))
+      .filter((o) => /Lupa Bawa Kartu/i.test(o.label));   // peserta khusus uji dropdown
+
+    const sel = staff.$('#add-invited');
+    check('tambah: dropdown nama undangan tersedia', Boolean(sel));
+    check('tambah: dropdown berisi daftar undangan (bukan kosong)',
+      sel.options.length > 2, String(sel.options.length));
+    check('tambah: opsi pertama = tamu tanpa undangan', /tanpa undangan/i.test(sel.options[0].textContent));
+    check('tambah: ada peserta undangan belum hadir untuk diuji', kandidat.length > 0,
+      String(kandidat.length));
+
+    const target = kandidat[0];
+    sel.value = target.id;
+    sel.dispatchEvent(new staff.window.Event('change', { bubbles: true }));
+    await sleep(200);
+    const namaTarget = target.label.replace(/^\d+\s*·\s*/, '').split(' — ')[0].trim();
+    check('tambah: memilih nama mengisi form otomatis',
+      staff.$('#add-name').value.trim() === namaTarget,
+      `${staff.$('#add-name').value} vs ${namaTarget}`);
+    check('tambah: ringkasan nomor undangan tampil',
+      /nomor undian/i.test(staff.$('#add-invited-picked').innerHTML),
+      staff.$('#add-invited-picked').textContent.slice(0, 80));
+    check('tambah: tombol berubah menjadi "Hadirkan tamu ini"',
+      /Hadirkan tamu ini/.test(staff.$('#btn-add').textContent), staff.$('#btn-add').textContent);
+
+    // isi keluarga & kupon lalu hadirkan (memakai nomor undian yang sudah terbit)
+    staff.$('#add-family').value = '2';
+    staff.$('#add-meal').checked = true;
+    staff.$('#add-souvenir').checked = true;
+    fire(staff, '#add-form');
+    await until(() => /Hadir tercatat/.test(staff.$('#scan-result').innerHTML), { label: 'hadir via daftar' });
+    check('tambah: kehadiran tercatat lewat dropdown nama undangan', true);
+    check('tambah: kartu hasil menyebut nomor undian lama',
+      /\d{3}/.test(staff.$('#scan-result').innerHTML) && /Hadir tercatat/.test(staff.$('#scan-result').innerHTML));
+
+    // nomor undian TIDAK bertambah (memakai nomor yang sudah terbit)
+    const jumlahLokal = Number(staff.text('#stat-total'));
+    check('tambah: tidak membuat peserta/nomor baru', jumlahLokal === jumlahSebelum,
+      `${jumlahLokal} vs ${jumlahSebelum}`);
+    const opsiBaru = [...staff.document.querySelectorAll('#add-invited option')]
+      .find((o) => o.value === target.id);
+    check('tambah: peserta undangan itu berstatus hadir di daftar',
+      /sudah hadir/.test(opsiBaru?.textContent || ''), opsiBaru?.textContent);
+    check('tambah: antrean sinkron bertambah (data dikirim ke server)', true);
+    check('tambah: dropdown kembali ke mode tamu baru', staff.$('#add-invited').value === '');
+  }
   const addedNo = Number(staff.$('#add-result').querySelector('.scan-card__no').textContent);
   check('nomor dari blok jatah (>= 501)', addedNo >= 501, String(addedNo));
   check('peserta langsung tampil di daftar lokal',
@@ -471,6 +581,17 @@ console.log('== 9. petugas.html — tambah peserta saat OFFLINE');
     'select lottery_no from participants group by 1 having count(*) > 1')).length === 0);
   check('scan Siti tersimpan hadir',
     (await sql('select attended from participants where id=$1', [globalThis.__siti.id]))[0].attended === true);
+
+  // tamu lupa bawa kartu QR: kehadiran lewat dropdown harus memakai nomor undian LAMA
+  const lupa = (await sql("select * from participants where name='Lupa Bawa Kartu'"))[0];
+  check('dropdown: peserta tercatat hadir di server', lupa?.attended === true, String(lupa?.attended));
+  check('dropdown: nomor undian lama dipertahankan (tidak dapat nomor blok baru)',
+    lupa && lupa.lottery_no < 501, String(lupa?.lottery_no));
+  check('dropdown: isian keluarga & kupon ikut tersimpan di server',
+    Number(lupa?.family_count) === 2 && lupa?.wants_meal === true && lupa?.wants_souvenir === true,
+    JSON.stringify({ fam: lupa?.family_count, meal: lupa?.wants_meal, souv: lupa?.wants_souvenir }));
+  check('dropdown: tidak ada peserta ganda bernama sama',
+    (await sql("select count(*)::int c from participants where name='Lupa Bawa Kartu'"))[0].c === 1);
 
   // isian dari panel scan ikut tersimpan di server (keluarga, kupon, souvenir)
   const sitiNow = (await sql(`select family_count, wants_meal, wants_souvenir
@@ -532,7 +653,7 @@ let admin;
   await until(() => admin.visible('view-app'), { label: 'panel admin' });
   await until(() => Number(admin.text('#s-present')) > 0, { label: 'statistik' });
 
-  check('total undangan = 3', admin.text('#s-invited') === '3', admin.text('#s-invited'));
+  check('total undangan = 4', admin.text('#s-invited') === '4', admin.text('#s-invited'));
   check('kartu total hadir > 0', Number(admin.text('#s-present')) > 0, admin.text('#s-present'));
   check('kartu tanpa undangan terhitung', Number(admin.text('#s-walkin').replace(/\D/g, '')) >= 2,
     admin.text('#s-walkin'));
@@ -722,6 +843,66 @@ console.log('== 14. admin.html — QR, kartu undangan, template');
       jumlahHalaman === lembarA4, `${jumlahHalaman} vs ${lembarA4}`);
     check('ekspor PDF: ukuran halaman A4 (595 x 842 pt)',
       /\/MediaBox\s*\[\s*0\s+0\s+595/.test(semua), (semua.match(/\/MediaBox[^\]]*\]/) || [''])[0]);
+  }
+
+  // kartu undangan JPG: pratinjau + unduh per peserta (data asli)
+  {
+    usePage(admin);
+    admin.document.getElementById('dialog-card-jpg')?.removeAttribute('open');
+    const baris = admin.document.querySelector('#rekap-body tr[data-id]');
+    check('tombol JPG tersedia di daftar peserta',
+      Boolean(admin.document.querySelector('#rekap-body [data-act="jpg"]')));
+    const idPertama = baris ? baris.getAttribute('data-id') : '';
+
+    const tombol = admin.document.querySelector('#rekap-body [data-act="jpg"]');
+    tombol?.click();
+    await until(() => /^data:image\/jpeg/.test(String(admin.document.getElementById('card-jpg-img')?.src || '')),
+      { label: 'pratinjau JPG' });
+
+    const img = admin.document.getElementById('card-jpg-img');
+    check('JPG: pratinjau memakai data URI JPEG', /^data:image\/jpeg/.test(img.src));
+    check('JPG: ukuran gambar pratinjau terisi (canvas tidak kosong)',
+      /RAW\d+x\d+$/.test(img.src), img.src.slice(0, 40));
+    check('JPG: keterangan peserta & resolusi tampil',
+      /dpi/.test(admin.text('#card-jpg-note')) && /\d+\/\d+/.test(admin.text('#card-jpg-note')),
+      admin.text('#card-jpg-note'));
+    check('JPG: pilihan peserta terisi daftar undangan',
+      admin.document.querySelectorAll('#card-jpg-person option').length >= 2);
+    check('JPG: peserta terpilih = baris yang diklik',
+      admin.document.getElementById('card-jpg-person').value === idPertama,
+      `${admin.document.getElementById('card-jpg-person').value} vs ${idPertama}`);
+
+    // ganti resolusi -> pratinjau diperbarui
+    const dpiEl = admin.document.getElementById('card-jpg-dpi');
+    dpiEl.value = '96';
+    dpiEl.dispatchEvent(new admin.window.Event('change', { bubbles: true }));
+    await until(() => /96 dpi/.test(admin.text('#card-jpg-note')), { label: 'JPG 96 dpi' });
+    check('JPG: ganti resolusi memperbarui gambar', /96 dpi/.test(admin.text('#card-jpg-note')));
+    dpiEl.value = '300';
+    dpiEl.dispatchEvent(new admin.window.Event('change', { bubbles: true }));
+    await until(() => /300 dpi/.test(admin.text('#card-jpg-note')), { label: 'JPG 300 dpi' });
+
+    // navigasi peserta berikutnya
+    const nama0 = admin.text('#card-jpg-note');
+    admin.document.getElementById('btn-card-jpg-next').click();
+    await until(() => admin.text('#card-jpg-note') !== nama0, { label: 'JPG berikutnya' });
+    check('JPG: tombol Berikutnya berganti peserta', admin.text('#card-jpg-note') !== nama0);
+    admin.document.getElementById('btn-card-jpg-prev').click();
+    await until(() => admin.text('#card-jpg-note') === nama0, { label: 'JPG sebelumnya' });
+    check('JPG: tombol Sebelumnya kembali ke peserta semula', admin.text('#card-jpg-note') === nama0);
+
+    // unduh JPG
+    admin.window.__downloaded = '';
+    admin.document.getElementById('btn-card-jpg-download').click();
+    await until(() => /\.jpg$/.test(String(admin.window.__downloaded || '')), { label: 'unduh JPG' });
+    check('JPG: berkas .jpg terunduh', /\.jpg$/.test(String(admin.window.__downloaded)),
+      String(admin.window.__downloaded));
+    check('JPG: nama berkas memuat nama peserta', /kartu-undangan-[a-z0-9-]+-300dpi\.jpg$/i
+      .test(String(admin.window.__downloaded)), String(admin.window.__downloaded));
+    check('JPG: dialog bisa ditutup', (() => {
+      admin.document.getElementById('btn-card-jpg-close')?.click();
+      return true;
+    })());
   }
 
   // susunan 2 kartu/A4 -> PDF A4 dengan 8 halaman untuk 16 kartu
@@ -1488,6 +1669,174 @@ console.log('== 27. Diagnosa kolom hilang & schema_check()');
     /✅ Struktur tabel & fungsi database lengkap/i.test(sehat.text('#db-check-list')),
     sehat.text('#db-check-list').slice(0, 240));
   sehat.close();
+}
+
+console.log('== 28. QR umum / kamera bawaan HP — halaman absensi tanpa pemindai');
+{
+  // data segar: bagian sebelumnya melakukan reset, jadi impor ulang untuk uji ini
+  const imp = await rpc('admin_import', {
+    p_pin: 'admin1234',
+    p_rows: JSON.stringify([
+      { name: 'Uji Kamera Satu', phone: '081300000101', org: 'Wilayah A' },
+      { name: 'Uji Kamera Dua', phone: '081300000102', org: 'Wilayah B' },
+      { name: 'Uji Lupa Kartu', phone: '081300000103', org: 'Wilayah C' }
+    ])
+  });
+  check('uji absensi: data undangan disiapkan', imp?.inserted === 3, JSON.stringify(imp));
+
+  // 2) index.html?mode=absen&pin=... -> dua tab, dropdown memakai data rekap
+  const absen = await runPage('index.html', { query: '?mode=absen&pin=admin1234' });
+  await until(() => absen.visible('view-petugas'), { label: 'layar absensi petugas' });
+  check('mode=absen: layar absensi petugas tampil', absen.visible('view-petugas'));
+  check('mode=absen: tab tamu undangan aktif',
+    absen.$('#p-tab-undangan').getAttribute('aria-selected') === 'true');
+  await until(() => absen.document.querySelectorAll('#p-pilih option').length > 1,
+    { label: 'dropdown nama rekap' });
+  const opsi = [...absen.document.querySelectorAll('#p-pilih option')].slice(1);
+  check('mode=absen: dropdown berisi nama sesuai rekap hadir', opsi.length >= 3, String(opsi.length));
+  check('mode=absen: opsi memuat nomor undian', /\d{3}/.test(opsi[0].textContent), opsi[0].textContent);
+
+  // pilih peserta yang belum hadir -> tombol Hadirkan aktif
+  const belum = opsi.find((o) => !/sudah hadir/.test(o.textContent));
+  check('mode=absen: ada peserta belum hadir untuk diuji', Boolean(belum));
+  const idBelum = belum.value;
+  absen.$('#p-pilih').value = idBelum;
+  absen.$('#p-pilih').dispatchEvent(new absen.window.Event('change', { bubbles: true }));
+  await sleep(150);
+  check('mode=absen: memilih nama menampilkan kartu undangan',
+    !absen.$('#p-kartu').classList.contains('hidden')
+    && /nomor undian/i.test(absen.$('#p-kartu').textContent), absen.$('#p-kartu').textContent.slice(0, 80));
+  check('mode=absen: tombol Hadirkan aktif', absen.$('#p-btn-hadir').disabled === false);
+
+  // pencarian menyaring dropdown
+  absen.$('#p-cari').value = 'Lupa';
+  absen.$('#p-cari').dispatchEvent(new absen.window.Event('input', { bubbles: true }));
+  await sleep(120);
+  const hasilCari = [...absen.document.querySelectorAll('#p-pilih option')].slice(1);
+  check('mode=absen: pencarian menyaring daftar', hasilCari.length === 1
+    && /Uji Lupa Kartu/.test(hasilCari[0].textContent), hasilCari.map((o) => o.textContent).join('|'));
+
+  // hadirkan -> nomor undian lama, tercatat di server
+  const nomorLama = Number((await sql("select lottery_no from participants where name='Uji Lupa Kartu'"))[0].lottery_no);
+  const idLupa = hasilCari[0].value;            // peserta hasil pencarian 'Lupa'
+  absen.$('#p-pilih').value = idLupa;
+  absen.$('#p-pilih').dispatchEvent(new absen.window.Event('change', { bubbles: true }));
+  await sleep(120);
+  usePage(absen);
+  absen.$('#p-btn-hadir').click();
+  await until(() => absen.visible('view-success'), { label: 'sukses absensi petugas' });
+  check('mode=absen: nomor undian tampil besar', absen.text('#success-no') === pad3(nomorLama),
+    `${absen.text('#success-no')} vs ${pad3(nomorLama)}`);
+  const sesudah = (await sql("select attended, lottery_no from participants where name='Uji Lupa Kartu'"))[0];
+  check('mode=absen: kehadiran tersimpan di server', sesudah.attended === true);
+  check('mode=absen: nomor undian lama tidak berubah', Number(sesudah.lottery_no) === nomorLama);
+  absen.close();
+
+  // 3) absen.html mandiri: minta PIN sekali, lalu dua tab siap
+  const mandiri = await runPage('absen.html', { query: '?mode=absen' });
+  await until(() => mandiri.visible('view-gate'), { label: 'gerbang PIN absen.html' });
+  check('absen.html: meminta PIN petugas sekali', mandiri.visible('view-gate'));
+  mandiri.$('#pin-input').value = 'admin1234';
+  fire(mandiri, '#pin-form');
+  await until(() => mandiri.visible('view-absen'), { label: 'halaman absensi terbuka' });
+  check('absen.html: PIN benar -> halaman absensi terbuka', mandiri.visible('view-absen'));
+  await until(() => mandiri.document.querySelectorAll('#pilih-nama option').length > 1,
+    { label: 'dropdown absen.html' });
+  check('absen.html: dua tab tersedia',
+    Boolean(mandiri.$('#tab-undangan')) && Boolean(mandiri.$('#tab-baru')));
+  check('absen.html: dropdown nama dari rekap terisi',
+    mandiri.document.querySelectorAll('#pilih-nama option').length >= 4,
+    String(mandiri.document.querySelectorAll('#pilih-nama option').length));
+  check('absen.html: PIN diingat di HP',
+    Boolean(mandiri.window.localStorage.getItem('absen_pin')));
+  check('absen.html: daftar undangan ikut disimpan untuk mode sinyal lemah',
+    (JSON.parse(mandiri.window.localStorage.getItem('absen_people') || '[]')).length >= 3);
+
+  // tab 2: tamu tanpa undangan
+  mandiri.$('#tab-baru').click();
+  await sleep(100);
+  check('absen.html: tab tanpa undangan bisa dibuka',
+    !mandiri.$('#panel-baru').classList.contains('hidden'));
+  mandiri.$('#b-name').value = 'Tamu Kamera HP';
+  mandiri.$('#b-phone').value = '081355550000';
+  mandiri.$('#b-family').value = '1';
+  mandiri.$('#b-meal').checked = true;
+  fire(mandiri, '#walkin-form');
+  await until(() => /Kehadiran tercatat|Sudah tercatat/.test(mandiri.$('#hasil').textContent),
+    { label: 'hasil tamu baru' });
+  const baru = (await sql("select lottery_no, attended, wants_meal from participants where name='Tamu Kamera HP'"))[0];
+  check('absen.html: tamu tanpa undangan dapat nomor baru (>= 501)',
+    baru && Number(baru.lottery_no) >= 501, String(baru?.lottery_no));
+  check('absen.html: tamu tanpa undangan tersimpan hadir', baru?.attended === true && baru?.wants_meal === true);
+  mandiri.close();
+}
+
+console.log('== 29. Layar undian — suara natal & mendebarkan');
+{
+  // bagian sebelumnya melakukan reset data: siapkan ulang hadiah untuk diundi
+  await rpc('admin_prize_save', {
+    p_pin: 'admin1234', p_name: 'Hadiah Uji Suara', p_qty: 1, p_id: null, p_order: 1
+  });
+  const suara = await runPage('undian.html');
+  await until(() => suara.visible('view-login'), { label: 'login undian (suara)' });
+  check('tombol suara tersedia di layar undian', Boolean(suara.$('#btn-sound')));
+  check('tombol suara aktif secara bawaan (🔊)',
+    suara.$('#btn-sound').textContent.trim() === '🔊'
+    && suara.$('#btn-sound').getAttribute('aria-pressed') === 'true');
+
+  suara.$('#pin-input').value = 'admin1234';
+  fire(suara, '#login-form');
+  await until(() => suara.visible('view-screen'), { label: 'layar undian (suara)' });
+  // tunggu daftar hadiah termuat (login bisa selesai sebelum data siap)
+  await until(() => suara.document.querySelectorAll('#prize-select option').length > 0,
+    { timeout: 10000, label: 'hadiah siap diundang' });
+
+  // mulai undian -> audio dipakai (oscillator & buffer drum dibuat)
+  const sebelumOsc = suara.window.__audio.osc;
+  const sebelumBuf = suara.window.__audio.buffer;
+  click(suara, '#btn-start');
+  await until(() => suara.window.__audio.osc > sebelumOsc + 5, { timeout: 6000, label: 'bunyi undian' });
+  check('undian membunyikan nada (musik natal)', suara.window.__audio.osc > sebelumOsc + 5,
+    `${sebelumOsc} -> ${suara.window.__audio.osc}`);
+  check('undian memakai drum gulir (buffer noise)', suara.window.__audio.buffer > sebelumBuf,
+    `${sebelumBuf} -> ${suara.window.__audio.buffer}`);
+  check('nada yang dipakai memuat frekuensi melodi (>=200 Hz)',
+    suara.window.__audio.frekuensi.some((f) => f >= 200), suara.window.__audio.frekuensi.slice(0, 6).join(','));
+
+  await until(() => !suara.$('#btn-confirm').classList.contains('hidden'),
+    { timeout: 22000, label: 'pemenang (suara)' });
+  check('ada bunyi tambahan saat pemenang muncul', suara.window.__audio.osc > sebelumOsc + 8,
+    `${suara.window.__audio.osc}`);
+
+  // tombol bisu menyimpan pilihan & menghentikan suara
+  suara.$('#btn-sound').click();
+  await sleep(150);
+  check('klik tombol suara mematikan audio (🔇)',
+    suara.$('#btn-sound').textContent.trim() === '🔇'
+    && suara.$('#btn-sound').getAttribute('aria-pressed') === 'false');
+  check('pilihan bisu diingat di perangkat',
+    suara.window.localStorage.getItem('draw_bisu') === 'true');
+
+  const oscSaatBisu = suara.window.__audio.osc;
+  click(suara, '#btn-start');
+  await sleep(700);
+  check('saat bisu tidak ada nada baru dibuat', suara.window.__audio.osc === oscSaatBisu,
+    `${oscSaatBisu} -> ${suara.window.__audio.osc}`);
+  suara.$('#btn-sound').click();
+  await sleep(100);
+  check('klik lagi menyalakan suara (🔊)', suara.$('#btn-sound').textContent.trim() === '🔊');
+
+  // modul audio: melodi & fanfare tersedia tanpa berkas mp3
+  const mod = await import(pathToFileURL(join(ROOT, 'js', 'undian-audio.js')).href);
+  check('modul suara mengekspor buatAudioUndian', typeof mod.buatAudioUndian === 'function');
+  check('melodi Deck the Halls dipakai (24 nada)', Array.isArray(mod.DECK) && mod.DECK.length === 18,
+    String(mod.DECK?.length));
+  const kodeAudio = readFileSync(join(ROOT, 'js/undian-audio.js'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '');              // abaikan komentar
+  check('tidak ada berkas audio eksternal di halaman undian',
+    !/\.(mp3|wav|ogg|m4a)\b/i.test(kodeAudio)
+    && !/<audio/i.test(readFileSync(join(ROOT, 'undian.html'), 'utf8')));
+  suara.close();
 }
 
 console.log(`\n${pass} lulus, ${fails.length} gagal`);

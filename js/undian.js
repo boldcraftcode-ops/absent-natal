@@ -9,13 +9,19 @@ import { api } from '../api.js';
 import {
   pad3, esc, toast, uuid, cryptoRandomInt, store, online, fmtTime, $, $$
 } from '../util.js';
+import { buatAudioUndian } from './undian-audio.js';
+
+/** Suara undian (dibuat di perangkat, tanpa berkas audio). */
+const AUDIO = buatAudioUndian();
 
 const K = {
   pin: 'admin_pin',
   snapshot: 'draw_snapshot',   // { event_name, prizes, candidates, winners, saved_at }
   results: 'draw_results',     // hasil lokal (belum/masih perlu sinkron)
   queue: 'draw_queue',
-  prize: 'draw_prize_id'
+  prize: 'draw_prize_id',
+  bisu: 'draw_bisu',
+  volume: 'draw_volume'
 };
 
 const S = {
@@ -29,6 +35,7 @@ const S = {
   current: null,    // hadiah aktif
   picked: null,     // peserta terpilih (belum dikonfirmasi)
   spinning: false,
+  bisu: false,
   syncing: false,
   timer: null
 };
@@ -229,6 +236,7 @@ function startDraw() {
   S.picked = winner;
   S.spinning = true;
   setControls('spinning');
+  if (!S.bisu) AUDIO.mulai();      // drum gulir + riser + alunan Natal
   showWinnerInfo(null);
   setDigits(['0', '0', '0']);
   $$('.digit').forEach((d) => { d.classList.remove('is-locked'); d.classList.add('is-spinning'); });
@@ -242,6 +250,11 @@ function startDraw() {
     rollDigit(i, target[i], stopAt[i]);
   }
 
+  // bunyi "tok" setiap kali satu digit terkunci
+  [0, 1, 2].forEach((i) => {
+    setTimeout(() => { if (!S.bisu) AUDIO.berhentiDigit(i); }, stopAt[i] - 40);
+  });
+
   setTimeout(() => {
     $$('.digit').forEach((d) => d.classList.remove('is-spinning'));
     setDigits(target, { locked: true });
@@ -249,6 +262,7 @@ function startDraw() {
     confetti(110);
     S.spinning = false;
     setControls('picked');
+    if (!S.bisu) AUDIO.menang();     // fanfare + lonceng Natal
   }, totalMs + 60);
 }
 
@@ -277,6 +291,7 @@ function rollDigit(index, targetChar, durationMs) {
 
 /* ======================================================== simpan hasil */
 function recordResult(status) {
+  if (!S.bisu && status === 'absent') AUDIO.gagal();
   if (!S.picked || !S.current) return;
   const person = S.picked;
   const rec = {
@@ -463,6 +478,28 @@ function bind() {
     renderChrome();
   });
   document.getElementById('btn-fullscreen')?.addEventListener('click', toggleFullscreen);
+  // suara undian: hidup/mati (disimpan di perangkat ini)
+  const btnSuara = document.getElementById('btn-sound');
+  const terapkanSuara = () => {
+    if (btnSuara) {
+      btnSuara.textContent = S.bisu ? '🔇' : '🔊';
+      btnSuara.setAttribute('aria-pressed', S.bisu ? 'false' : 'true');
+      btnSuara.title = S.bisu ? 'Suara undian mati — klik untuk menyalakan' : 'Suara undian hidup';
+    }
+    if (!S.bisu) AUDIO.bukaKunci();
+  };
+  S.bisu = Boolean(store.get(K.bisu, false));
+  AUDIO.setVolume(store.get(K.volume, 0.85));
+  terapkanSuara();
+  btnSuara?.addEventListener('click', () => {
+    S.bisu = !S.bisu;
+    store.set(K.bisu, S.bisu);
+    if (S.bisu) AUDIO.hentikanSemua();
+    terapkanSuara();
+    if (!S.bisu) AUDIO.klik();
+  });
+  // gestur pertama pengguna membuka izin audio peramban
+  document.addEventListener('pointerdown', () => { if (!S.bisu) AUDIO.bukaKunci(); }, { once: true });
   document.getElementById('btn-quit')?.addEventListener('click', () => {
     if (S.queue.length && !confirm(`Masih ada ${S.queue.length} hasil undian belum tersinkron. Keluar?`)) return;
     location.href = './admin.html';

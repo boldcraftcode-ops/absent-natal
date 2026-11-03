@@ -176,5 +176,48 @@ console.log('== 6. Tanpa QR: kartu tetap dibuat');
   check('berkas PDF tetap terbentuk', doc.output('arraybuffer').byteLength > 1000);
 }
 
+console.log('== 7. Tata letak bersama (card-layout) juga dipakai JPG');
+{
+  const { susunKartu } = await import(pathToFileURL(join(ROOT, 'js', 'card-layout.js')).href);
+  // pengukur tiruan: 1 mm per karakter, tinggi = jumlah baris × ukuran
+  const ukurTiruan = (teks, o) => {
+    const baris = String(teks).split('\n').flatMap((b) =>
+      doc_bungkus(b, o.maxW, o.ukuran));
+    return { baris, tinggi: baris.length * o.ukuran * (o.lh || 1.2), terpotong: false };
+  };
+  function doc_bungkus(teks, maxW, ukuran) {
+    const perBaris = Math.max(1, Math.floor(maxW / (ukuran * 0.5)));
+    const keluar = [];
+    let kini = '';
+    String(teks).split(/\s+/).forEach((k) => {
+      const coba = kini ? `${kini} ${k}` : k;
+      if (coba.length <= perBaris) kini = coba; else { if (kini) keluar.push(kini); kini = k; }
+    });
+    if (kini) keluar.push(kini);
+    return keluar.length ? keluar : [''];
+  }
+  const { ops } = susunKartu(TAMU, INFO, { x: 0, y: 0, w: 100, h: 150, nomor: 1, total: 4, ukur: ukurTiruan, qr: 'data:image/png;base64,AAA' });
+  const teks = normalisasi(ops.filter((o) => o.tipe === 'teks').map((o) => o.teks).join(' '));
+  check('susunan kartu menghasilkan perintah gambar', ops.length > 20, String(ops.length));
+  check('ada lapisan gradasi latar', ops.some((o) => o.tipe === 'gradasi'));
+  check('ada bintang ornamen', ops.some((o) => o.tipe === 'bintang'));
+  check('ada kotak QR + gambar QR', ops.some((o) => o.tipe === 'kotak' && o.isi === '#FFFFFF')
+    && ops.some((o) => o.tipe === 'gambar'));
+  check('teks kartu lengkap dari tata letak bersama',
+    teks.includes('Perayaan Natal') && teks.includes('Budi Santoso') && teks.includes('WAKTU'));
+  check('tanpa tanda potong pada tata letak bersama', !/…/.test(teks));
+  check('nomor kartu 01/4 dicetak', ops.some((o) => o.tipe === 'teks' && o.teks === '01/4'));
+
+  // JPG: modul memuat API yang diharapkan
+  const jpg = await import(pathToFileURL(join(ROOT, 'js', 'cards-jpg.js')).href);
+  check('modul JPG mengekspor gambarKartuCanvas', typeof jpg.gambarKartuCanvas === 'function');
+  check('modul JPG mengekspor canvasKeBlob', typeof jpg.canvasKeBlob === 'function');
+  check('ukuran JPG 300 dpi = 1181 × 1772 px',
+    jpg.ukuranKartuJpg(300).w === 1181 && jpg.ukuranKartuJpg(300).h === 1772,
+    JSON.stringify(jpg.ukuranKartuJpg(300)));
+  check('ukuran JPG 96 dpi proporsional 2:3',
+    Math.abs(jpg.ukuranKartuJpg(96).w / jpg.ukuranKartuJpg(96).h - 2 / 3) < 0.01);
+}
+
 console.log(`\n${lulus} lulus, ${gagal} gagal`);
 process.exit(gagal ? 1 : 0);

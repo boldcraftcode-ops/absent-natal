@@ -10,6 +10,7 @@ import {
 } from '../util.js';
 import { qrPngDataUrl, qrPngBase64 } from '../qr.js';
 import { drawCardPdf, loadJsPdf } from './cards-pdf.js';
+import { gambarKartuCanvas, canvasKeBlob, canvasKeDataUrl } from './cards-jpg.js';
 
 const K = { pin: 'admin_pin', domain: 'admin_domain', tab: 'admin_tab',
   cardWhen: 'card_when', cardPlace: 'card_place', cardLayout: 'card_layout' };
@@ -259,6 +260,8 @@ function renderRekap() {
         <td data-label="Aksi">
           <div class="actions">
             <button class="btn btn--outline btn--sm" data-act="toggle" data-id="${esc(p.id)}">${p.attended ? 'Batal' : 'Hadir'}</button>
+            <button class="btn btn--outline btn--sm" data-act="jpg" data-id="${esc(p.id)}"
+                    title="Lihat & unduh kartu undangan sebagai JPG">JPG</button>
             <button class="btn btn--outline btn--sm" data-act="edit" data-id="${esc(p.id)}">Edit</button>
             <button class="btn btn--outline btn--sm" data-act="delete" data-id="${esc(p.id)}">Hapus</button>
             ${p.phone ? `<a class="btn btn--outline btn--sm" target="_blank" rel="noopener"
@@ -267,6 +270,137 @@ function renderRekap() {
         </td>
       </tr>`;
   }).join('') || `<tr><td colspan="10" style="text-align:center;padding:22px;color:var(--ink-soft)">Tidak ada data sesuai filter.</td></tr>`;
+}
+
+/* ===================================================== kartu JPG (canvas) */
+
+/** Daftar peserta yang bisa dipilih di dialog kartu JPG (mengikuti filter). */
+let jpgDaftar = [];
+let jpgIndeks = 0;
+
+function pesertaJpg() {
+  return jpgDaftar[jpgIndeks] || null;
+}
+
+/** Nama berkas JPG per peserta. */
+function namaBerkasJpg(p, dpi) {
+  const bersih = String(p.name || 'peserta').normalize('NFKD')
+    .replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-').slice(0, 60) || 'peserta';
+  return `kartu-undangan-${bersih}-${dpi}dpi.jpg`;
+}
+
+/** Gambar kartu peserta terpilih ke <img> pratinjau; mengembalikan canvas-nya. */
+async function renderKartuJpg() {
+  const p = pesertaJpg();
+  const img = document.getElementById('card-jpg-img');
+  const note = document.getElementById('card-jpg-note');
+  if (!p || !img) return null;
+
+  const dpi = Number(document.getElementById('card-jpg-dpi')?.value || 300);
+  const canvas = document.createElement('canvas');
+  const info = cardEventInfo();
+  try {
+    await gambarKartuCanvas(canvas, p, info, {
+      dpi,
+      nomor: jpgIndeks + 1,
+      total: jpgDaftar.length,
+      qr: qrPngDataUrl(inviteUrl(p.token), { size: 480, margin: 1 })
+    });
+  } catch (e) {
+    if (note) note.textContent = e?.message || 'Gagal membuat gambar.';
+    return null;
+  }
+
+  img.src = canvasKeDataUrl(canvas, 'image/jpeg', 0.92);
+  if (note) {
+    note.textContent = `${jpgIndeks + 1}/${jpgDaftar.length} · ${p.name} · `
+      + `${canvas.width} × ${canvas.height} px (${dpi} dpi)`;
+  }
+  const sel = document.getElementById('card-jpg-person');
+  if (sel) sel.value = p.id;
+  return canvas;
+}
+
+/** Buka dialog kartu JPG untuk satu peserta (id) atau seluruh daftar terfilter. */
+async function bukaKartuJpg(id) {
+  const semua = S.data.participants.slice().sort((a, b) => a.lottery_no - b.lottery_no);
+  if (!semua.length) { toast('Belum ada peserta. Import undangan dulu.', 'warn'); return; }
+
+  jpgDaftar = filterRows().length ? filterRows() : semua;
+  const idx = jpgDaftar.findIndex((x) => String(x.id) === String(id));
+  jpgIndeks = idx >= 0 ? idx : 0;
+
+  const dlg = document.getElementById('dialog-card-jpg');
+  const sel = document.getElementById('card-jpg-person');
+  if (sel) {
+    sel.innerHTML = jpgDaftar.map((x, i) =>
+      `<option value="${esc(x.id)}">${esc(String(i + 1).padStart(3, '0'))} · ${esc(x.name)}</option>`).join('');
+  }
+  if (dlg && typeof dlg.showModal === 'function' && !dlg.open) dlg.showModal();
+  await renderKartuJpg();
+}
+
+/** Unduh kartu peserta terpilih sebagai JPG. */
+async function unduhKartuJpg(btn) {
+  const p = pesertaJpg();
+  if (!p) { toast('Pilih peserta dulu.', 'warn'); return; }
+  const dpi = Number(document.getElementById('card-jpg-dpi')?.value || 300);
+
+  await withBusy(btn, 'Menyiapkan JPG…', async () => {
+    const canvas = await renderKartuJpg();
+    if (!canvas) { toast('Gagal membuat gambar kartu.', 'err', 5000); return; }
+    const blob = await canvasKeBlob(canvas, 'image/jpeg', 0.92);
+    await saveBlob(blob, namaBerkasJpg(p, dpi));
+    toast(`Kartu ${p.name} diunduh sebagai JPG.`, 'ok');
+  });
+}
+
+/** Ekspor kartu semua peserta terfilter ke satu ZIP berisi JPG. */
+async function exportKartuJpgZip(btn) {
+  const daftar = filterRows().length ? filterRows() : S.data.participants;
+  if (!daftar.length) { toast('Belum ada peserta.', 'warn'); return; }
+  const dpi = Number(document.getElementById('card-jpg-dpi')?.value || 300) || 300;
+
+  await withBusy(btn, `Menyiapkan ${daftar.length} JPG…`, async () => {
+    if (typeof JSZip === 'undefined') {
+      // tanpa JSZip: unduh satu per satu (maksimal 20 agar tidak diblokir peramban)
+      for (const p of daftar.slice(0, 20)) {
+        const canvas = document.createElement('canvas');
+        await gambarKartuCanvas(canvas, p, cardEventInfo(), {
+          dpi, nomor: 1, total: daftar.length,
+          qr: qrPngDataUrl(inviteUrl(p.token), { size: 480, margin: 1 })
+        });
+        const blob = await canvasKeBlob(canvas, 'image/jpeg', 0.92);
+        await saveBlob(blob, namaBerkasJpg(p, dpi));
+        await new Promise((r) => setTimeout(r, 180));
+      }
+      toast(`20 kartu pertama diunduh (${dpi} dpi).`, 'ok', 5000);
+      return;
+    }
+
+    const info = cardEventInfo();
+    const zip = new JSZip();
+    const dipakai = new Set();
+    let nomor = 0;
+    for (const p of daftar) {
+      nomor += 1;
+      const canvas = document.createElement('canvas');
+      await gambarKartuCanvas(canvas, p, info, {
+        dpi, nomor, total: daftar.length,
+        qr: qrPngDataUrl(inviteUrl(p.token), { size: 480, margin: 1 })
+      });
+      const blob = await canvasKeBlob(canvas, 'image/jpeg', 0.92);
+      let nama = namaBerkasJpg(p, dpi);
+      let i = 2;
+      while (dipakai.has(nama)) { nama = nama.replace(/(\d+)dpi/, `$1dpi-${i++}`); }
+      dipakai.add(nama);
+      zip.file(nama, blob);
+    }
+    const blob = await zip.generateAsync({ type: 'blob', compression: 'STORE' });
+    await saveBlob(blob, `kartu-undangan-jpg-${daftar.length}kartu-${new Date()
+      .toISOString().slice(0, 10)}.zip`);
+    toast(`${daftar.length} kartu JPG diunduh (${dpi} dpi).`, 'ok', 4000);
+  });
 }
 
 /* ======================================================== import undangan */
@@ -673,12 +807,16 @@ function exportLinksXlsx(btn) {
 }
 
 function showGeneralQr() {
-  const url = `${currentDomain()}/`;
+  // QR meja registrasi: membuka halaman absensi petugas (2 tab: tamu undangan / tanpa undangan)
+  const url = `${currentDomain()}/absen.html?mode=absen`;
   const box = document.getElementById('qr-preview');
   box.innerHTML = `
     <div class="card card--flat" style="max-width:420px;margin:14px auto 0">
-      <h3 class="card__title center">Daftar Tanpa Undangan</h3>
-      <p class="card__sub center" style="margin-bottom:10px">Pindai untuk mengisi form kehadiran</p>
+      <h3 class="card__title center">Absensi Meja Registrasi</h3>
+      <p class="card__sub center" style="margin-bottom:10px">
+        Pindai dengan kamera bawaan HP → halaman absensi petugas
+        (tamu undangan &amp; tamu tanpa undangan)
+      </p>
       <div class="qr-box" style="margin:0 auto"><img alt="QR umum" src="${qrPngDataUrl(url, { size: 480, margin: 2 })}" style="width:100%;max-width:260px"></div>
       <p class="small center" style="margin:10px 0 0;color:var(--ink-soft);word-break:break-all">${esc(url)}</p>
       <div class="row" style="justify-content:center;margin-top:10px">
@@ -1125,6 +1263,7 @@ function bind() {
     if (!btn) return;
     const { act, id } = btn.dataset;
     if (act === 'toggle') togglePerson(id);
+    if (act === 'jpg') bukaKartuJpg(id);
     if (act === 'edit') openEditDialog(id);
     if (act === 'delete') deletePerson(id);
   });
@@ -1148,6 +1287,26 @@ function bind() {
     if (f) handleFile(f);
   });
   document.getElementById('btn-qr-zip')?.addEventListener('click', (e) => downloadQrZip(e.currentTarget));
+  document.getElementById('btn-cards-jpg-all')?.addEventListener('click', (e) => exportKartuJpgZip(e.currentTarget));
+  document.getElementById('btn-card-jpg-download')?.addEventListener('click', (e) => unduhKartuJpg(e.currentTarget));
+  document.getElementById('btn-card-jpg-close')?.addEventListener('click', () => {
+    document.getElementById('dialog-card-jpg')?.close();
+  });
+  document.getElementById('card-jpg-person')?.addEventListener('change', (e) => {
+    const i = jpgDaftar.findIndex((x) => String(x.id) === String(e.target.value));
+    if (i >= 0) { jpgIndeks = i; renderKartuJpg(); }
+  });
+  document.getElementById('card-jpg-dpi')?.addEventListener('change', () => renderKartuJpg());
+  document.getElementById('btn-card-jpg-prev')?.addEventListener('click', () => {
+    if (!jpgDaftar.length) return;
+    jpgIndeks = (jpgIndeks - 1 + jpgDaftar.length) % jpgDaftar.length;
+    renderKartuJpg();
+  });
+  document.getElementById('btn-card-jpg-next')?.addEventListener('click', () => {
+    if (!jpgDaftar.length) return;
+    jpgIndeks = (jpgIndeks + 1) % jpgDaftar.length;
+    renderKartuJpg();
+  });
   document.getElementById('btn-cards-pdf')?.addEventListener('click', () => exportCardsPdf());
   document.getElementById('btn-cards-pdf-all')?.addEventListener('click', () => exportCardsPdf({ all: true }));
   // tombol lama (bila masih ada di halaman lain) tetap berfungsi sebagai ekspor PDF

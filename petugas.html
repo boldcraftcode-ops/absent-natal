@@ -244,6 +244,18 @@
             <div id="tambah-warning-text">Jatah nomor habis. Sambungkan internet untuk mengambil jatah baru.</div>
           </div>
           <form id="add-form" novalidate>
+            <!-- Tamu lupa membawa kartu QR: pilih namanya dari daftar undangan -->
+            <label class="field">
+              <span class="label">Tamu sudah punya undangan? Pilih namanya di sini</span>
+              <select class="select" id="add-invited">
+                <option value="">— Tamu tanpa undangan (baru) —</option>
+              </select>
+              <span class="hint" id="add-invited-hint">
+                Ketik nama untuk mencari. Memilih nama di sini akan menghadirkan tamu
+                dengan nomor undian yang sudah terbit (tidak membuat nomor baru).
+              </span>
+            </label>
+            <div id="add-invited-picked" class="hidden"></div>
             <label class="field">
               <span class="label">Nama lengkap <span style="color:var(--red-600)">*</span></span>
               <input class="input" id="add-name" required maxlength="80" autocomplete="name"

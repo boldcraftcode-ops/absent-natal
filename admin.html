@@ -119,6 +119,7 @@
               <button class="btn btn--outline btn--sm" id="btn-add-person">➕ Tambah</button>
               <button class="btn btn--gold btn--sm" id="btn-xlsx">⬇️ Excel</button>
               <button class="btn btn--outline btn--sm" id="btn-csv">⬇️ CSV</button>
+              <button class="btn btn--outline btn--sm" id="btn-cards-jpg-all">🖼️ JPG</button>
             </div>
           </div>
           <input class="input" id="rekap-search" type="search" placeholder="Cari nama / HP / asal / nomor undian…">
@@ -342,6 +343,44 @@
       Panel Panitia · semua akses data lewat fungsi RPC yang dilindungi PIN
     </footer>
   </main>
+
+  <!-- dialog pratinjau kartu undangan (JPG) -->
+  <dialog class="sheet" id="dialog-card-jpg">
+    <div class="sheet__head">
+      <h2 id="card-jpg-title">Kartu undangan</h2>
+      <button class="btn btn--outline btn--sm" id="btn-card-jpg-close" type="button">Tutup</button>
+    </div>
+    <div class="sheet__body stack">
+      <div class="row row--between" style="gap:10px;align-items:flex-end;flex-wrap:wrap">
+        <div>
+          <span class="label">Nama peserta</span>
+          <select class="select" id="card-jpg-person" style="min-width:230px"></select>
+        </div>
+        <div>
+          <span class="label">Resolusi</span>
+          <select class="select" id="card-jpg-dpi" style="width:auto">
+            <option value="300">300 dpi — cetak (1181 × 1772 px)</option>
+            <option value="150">150 dpi — ringan (591 × 886 px)</option>
+            <option value="96">96 dpi — layar/WhatsApp (378 × 567 px)</option>
+          </select>
+        </div>
+      </div>
+      <div class="row" style="gap:8px;flex-wrap:wrap">
+        <button class="btn btn--gold btn--sm" id="btn-card-jpg-download" type="button">⬇️ Unduh JPG</button>
+        <button class="btn btn--outline btn--sm" id="btn-card-jpg-prev" type="button">‹ Sebelumnya</button>
+        <button class="btn btn--outline btn--sm" id="btn-card-jpg-next" type="button">Berikutnya ›</button>
+        <span class="small" id="card-jpg-note" style="color:var(--ink-soft)"></span>
+      </div>
+      <div style="display:flex;justify-content:center;background:var(--kraft-100);border-radius:12px;padding:12px">
+        <img id="card-jpg-img" alt="Pratinjau kartu undangan JPG"
+             style="width:100%;max-width:340px;height:auto;border-radius:8px;box-shadow:0 8px 24px rgba(42,26,18,.18);background:#fff">
+      </div>
+      <p class="small" style="color:var(--ink-soft);margin:0">
+        Gambar dibuat dari data asli peserta (termasuk QR), sama persis dengan pratinjau
+        dan hasil PDF. Cocok dikirim lewat WhatsApp atau dicetak sebagai foto 4R.
+      </p>
+    </div>
+  </dialog>
 
   <!-- dialog tambah/edit peserta -->
   <dialog class="sheet" id="dialog-person">

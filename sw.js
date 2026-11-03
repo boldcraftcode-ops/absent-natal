@@ -6,13 +6,14 @@
      * Supabase  : TIDAK pernah di-cache (selalu jaringan)
    ========================================================================== */
 
-const VERSION = 'natal-v9-pdf-mirror';
+const VERSION = 'natal-v13-suara-undian';
 const CACHE = `absensi-${VERSION}`;
 
 const PRECACHE = [
   './',
   './index.html',
   './petugas.html',
+  './absen.html',
   './admin.html',
   './undian.html',
   './styles.css',
@@ -22,9 +23,13 @@ const PRECACHE = [
   './qr.js',
   './js/index.js',
   './js/petugas.js',
+  './js/absen-tamu.js',
   './js/admin.js',
   './js/cards-pdf.js',
+  './js/card-layout.js',
+  './js/cards-jpg.js',
   './js/undian.js',
+  './js/undian-audio.js',
   './vendor/qrcode.js',
   './vendor/html5-qrcode.min.js',
   './vendor/xlsx.full.min.js',

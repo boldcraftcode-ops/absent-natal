@@ -13,7 +13,8 @@
   "license": "ISC",
   "description": "Uji otomatis skema SQL (PGlite) dan antarmuka (jsdom) untuk aplikasi absensi Natal.",
   "dependencies": {
-    "@electric-sql/pglite": "^0.5.13"
+    "@electric-sql/pglite": "^0.5.13",
+    "@napi-rs/canvas": "^1.1.0"
   },
   "devDependencies": {
     "jsdom": "^25.0.1"

@@ -206,8 +206,10 @@ Setelah punya domain:
 | 1 | Peserta punya undangan | Scan QR undangan → halaman terbuka → tekan **Konfirmasi Hadir** → nomor undian 3 digit besar → screenshot |
 | 2 | HP peserta tanpa internet | Tunjukkan QR ke petugas → petugas scan di `petugas.html` → nama + nomor undian besar tampil untuk disebutkan |
 | 3 | Tanpa undangan | Scan **QR umum** di meja → isi nama, no. HP, asal, **jumlah anggota keluarga (dropdown 0–5)**, centang **Kupon Makan** / **Souvenir** → nomor undian |
+| 4 | **Punya undangan tapi lupa bawa kartu QR** | Petugas buka tab **Tambah** → pilih nama tamu di dropdown **“Tamu sudah punya undangan?”** → isian terisi otomatis → lengkapi keluarga/kupon → **Hadirkan tamu ini** → nomor undian **lama** dipakai ulang (tidak ada nomor baru) |
 | Petugas offline | Petugas | Scan & tambah peserta tetap jalan; antrean tersimpan; sinkron otomatis saat sinyal kembali |
-| Undian | MC | `undian.html` di proyektor; pilih hadiah → MULAI (spasi) → Konfirmasi / Tidak hadir |
+| Petugas **tanpa pemindai QR** | Petugas | Kamera bawaan HP memindai **QR meja registrasi** → `absen.html` → tab **Tamu undangan** (dropdown nama) atau **Tanpa undangan** (§11b) |
+| Undian | MC | `undian.html` di proyektor; pilih hadiah → MULAI (spasi) → Konfirmasi / Tidak hadir. Suara Natal + drum gulir otomatis (§13b), tombol 🔊 untuk membisukan |
 
 Aturan penting yang sudah diterapkan:
 
@@ -278,6 +280,29 @@ Saat QR undangan terbaca (atau kode undangan ditempel di kolom manual), petugas
   sehingga data yang sudah diisi tamu tidak hilang.
 * Tombol **Hadirkan** pada tab **Cari** memakai panel isian yang sama.
   **Batal** menutup panel tanpa mencatat apa pun dan membolehkan QR dipindai ulang.
+
+#### Tamu lupa membawa kartu QR (tab Tambah)
+
+Tidak perlu membuat peserta baru (yang akan memberi nomor undian baru dan
+membuat data ganda). Di tab **Tambah** ada dropdown di paling atas:
+
+> **Tamu sudah punya undangan? Pilih namanya di sini**
+
+| Keadaan | Yang terjadi |
+|---|---|
+| Tamu **belum hadir** | nama, HP, asal, jumlah keluarga, dan centang kupon/souvenir terisi otomatis dari data undangan; tombol berubah menjadi **Hadirkan tamu ini**; kehadiran dicatat dengan **nomor undian yang sudah terbit** |
+| Tamu **sudah hadir** | muncul peringatan “Sudah tercatat hadir pukul HH:MM”; simpan hanya bila petugas ingin **memperbarui** isian keluarga/kupon (ada konfirmasi dulu) — waktu hadir pertama tidak berubah |
+| Tidak memilih nama (opsi pertama) | perilaku lama: peserta **tanpa undangan** baru, nomor dari blok jatah HP petugas (501, 502, …) |
+
+* Daftar dropdown memuat **semua undangan yang tersimpan di HP petugas**
+  (`staff_data`), diurutkan nomor undian, ditandai `✓ sudah hadir` bila sudah absen,
+  dan bisa diketik untuk mencari. Jumlah undangan & sisa yang belum hadir
+  ditampilkan di bawah dropdown.
+* Tetap **jalan offline**: pilihan diambil dari data lokal HP petugas, kehadiran
+  masuk antrean `staff_sync` dan terkirim saat sinyal kembali — memakai jalur
+  `attend` yang sama dengan hasil pindai QR.
+* Bila daftar kosong (HP petugas belum pernah memuat data), petugas diminta
+  menyambungkan internet lalu menekan tombol muat ulang data.
 
 ---
 
@@ -379,6 +404,52 @@ dikirim ke panitia/pengembang lewat WhatsApp, sehingga tidak perlu membaca konso
 
 > Halaman peserta (`index.html`) juga menampilkan **rincian teknis** singkat di bawah pesan
 > error: nama fungsi, kode HTTP, dan waktu kejadian.
+
+---
+
+## 11b. Petugas TANPA pemindai QR di browser (kamera bawaan HP)
+
+Kalau ada HP petugas yang tidak bisa membuka pemindai QR di `petugas.html`
+(izin kamera diblokir, WebView kaku, atau browser lama), **tidak perlu memaksa**.
+Pakai kamera bawaan HP + halaman absensi khusus:
+
+### Cara kerja
+
+| Langkah | Keterangan |
+|---|---|
+| 1 | Cetak **QR meja registrasi**: panel admin → tab **Undangan & QR** → **🔳 QR umum meja registrasi** → **🖨️ Cetak** |
+| 2 | Petugas memindai QR itu dengan **aplikasi kamera bawaan** HP (bukan di dalam browser) |
+| 3 | QR membuka `absen.html?mode=absen` → halaman absensi 2 tab |
+| 4 | Masukkan **PIN petugas sekali** — PIN diingat di HP itu, tidak perlu mengetik ulang |
+
+Alamat yang dipakai QR: `https://daftartamu-natal.netlify.app/absen.html?mode=absen`
+
+### Dua tab di halaman absensi (`absen.html`)
+
+| Tab | Untuk | Isi |
+|---|---|---|
+| **🎫 Tamu undangan** | Tamu yang punya undangan (lupa bawa kartu QR / kode) | kolom cari + **dropdown nama sesuai rekap hadir** (memuat nomor undian, ditandai `✓ sudah hadir`) → pilih nama → isi jumlah keluarga & centang kupon/souvenir → **Tandai Hadir** |
+| **➕ Tanpa undangan** | Tamu yang memang tidak diundang | form nama, no. HP, asal, jumlah keluarga, kupon, souvenir → **Daftarkan & Tandai Hadir** (nomor baru 501, 502, …) |
+
+Keduanya menampilkan **nomor undian besar** setelah tersimpan, siap
+disebutkan/diperlihatkan ke tamu. Data langsung masuk ke server (tanpa antrean
+offline), jadi panel admin & layar undian ikut terbarui.
+
+Catatan:
+
+* **Tidak butuh kamera, tidak butuh pustaka QR**, jadi halaman ini sangat ringan
+  dan cocok untuk HP jadul.
+* Daftar undangan diambil sekali lewat `staff_data(PIN)` (fungsi yang sudah ada)
+  lalu **disimpan di HP** — pencarian tetap jalan walau sinyal di lokasi lemah.
+  Tombol **⟳ Muat ulang** memperbarui daftar.
+* Halaman ini **hanya mencatat** (tidak menerbitkan nomor baru saat offline),
+  berbeda dengan `petugas.html` yang punya blok nomor offline. Jadi gunakan
+  halaman ini saat ada internet di lokasi; bila ingin tetap jalan tanpa sinyal,
+  gunakan `petugas.html` di HP yang kameranya bisa.
+* QR undangan tamu tetap membuka halaman peserta biasa (`index.html?t=…`).
+  Halaman peserta juga punya pintasan **“Petugas? Buka absensi meja registrasi →”**
+  di layar undangan, dan mendukung `index.html?mode=absen&pin=PIN` untuk
+  petugas yang ingin melihat daftar tanpa membuka halaman terpisah.
 
 ---
 
@@ -498,7 +569,7 @@ terlalu panjang ukuran huruf + kotak QR menyusut serentak (maksimal 38 %)
 sampai semuanya muat tanpa memotong kata. Dijaga oleh `node tests/pdf.test.mjs`:
 
 ```bash
-cd tests && node pdf.test.mjs      # 34 pemeriksaan tata letak kartu PDF
+cd tests && node pdf.test.mjs      # 45 pemeriksaan tata letak kartu (PDF + JPG)
 ```
 
 Yang diperiksa: semua isi kartu benar-benar tercetak, tidak ada "…", semua teks
@@ -511,14 +582,74 @@ pada susunan 4/A4 maupun 2/A4.
 > uji otomatis. Bila unduhan diblokir peramban HP, PDF otomatis dibuka di tab baru
 > untuk disimpan dari sana.
 
+### Kartu sebagai JPG (pratinjau + unduh)
+
+Butuh kartu dalam bentuk **gambar** (kirim WhatsApp, cetak foto, atau simpan di
+galeri HP)? Ada tombol **JPG** di dua tempat:
+
+| Lokasi | Tombol | Hasil |
+|---|---|---|
+| Tab **Rekap Hadir** → kolom **Aksi** setiap peserta | **JPG** | dialog pratinjau kartu peserta itu + unduh |
+| Tab **Rekap Hadir** → baris tombol daftar peserta | **🖼️ JPG** | unduh kartu **semua peserta terfilter** sebagai satu `.zip` |
+
+Cara pakai:
+
+1. Tekan **JPG** pada baris peserta → dialog pratinjau terbuka (gambar asli, bukan tiruan).
+2. Pilih **resolusi**: **300 dpi** (1181 × 1772 px, untuk cetak), **150 dpi**
+   (591 × 886 px, ringan), atau **96 dpi** (378 × 567 px, untuk WhatsApp).
+3. Ganti peserta dengan dropdown atau tombol **‹ Sebelumnya / Berikutnya ›**.
+4. Tekan **⬇️ Unduh JPG** — nama berkas `kartu-undangan-budi-santoso-300dpi.jpg`.
+
+Catatan:
+
+* Gambar dibuat **di perangkat** dengan `<canvas>` — tidak ada pustaka tambahan,
+  tetap jalan offline, dan **tidak memakai kuota/credit Netlify**.
+* Isinya sama persis dengan pratinjau dan PDF karena ketiganya memakai satu
+  modul tata letak: `js/card-layout.js` (PDF → `js/cards-pdf.js`,
+  JPG → `js/cards-jpg.js`, pratinjau → `styles.css .card15`).
+* Teks panjang menyusut otomatis, jadi tidak ada kata terpotong.
+* Ekspor banyak peserta memakai ZIP dan berjalan bertahap (bila JSZip tidak ada,
+  20 kartu pertama diunduh satu per satu).
+
 ### Berkas contoh (data contoh, tanpa aplikasi)
 
 * `kartu-undangan-10x15.html` — `node tools/make-cards-sample.mjs` (bawaan 4 kartu/A4;
   opsi `--2-per-a4`, `--4-per-a3`)
 * `contoh-kartu-undangan.pdf` (di folder induk) — contoh hasil **ekspor PDF** dari aplikasi:
   A4, 4 kartu, ukuran kertas & posisi kartu sudah final, siap dicetak/kirim ke percetakan.
+* `contoh-kartu-undangan.jpg` (di folder induk) — contoh hasil tombol **JPG**
+  (591 × 886 px, 150 dpi): satu kartu lengkap dengan QR, sama dengan pratinjau.
 * `kartu-undangan-10x15-contoh.pdf` — `python3 tools/make-cards-pdf.py` (bawaan 4 kartu/A4;
   opsi `--2-per-a4`, `--4-per-a3`, `--satu-per-halaman`)
+
+---
+
+## 13b. Suara undian (Natal & mendebarkan)
+
+Layar `undian.html` sekarang **bersuara** saat mengundi. Semua bunyi dibuat di
+perangkat dengan **Web Audio API** — tidak ada berkas `.mp3`, jadi tidak menambah
+berat halaman, tetap jalan offline, dan tidak memakai kuota.
+
+| Momen | Bunyi |
+|---|---|
+| Tombol **▶ MULAI** ditekan | **drum gulir** (snare roll) yang makin cepat & keras + **riser** nada menaik → ketegangan |
+| Selama digit berputar | alunan **“Deck the Halls”** (tema Natal, domain publik) dengan timbre **lonceng/glockenspiel** + bas lembut |
+| Digit 1 → 2 → 3 terkunci | bunyi **“tok”** yang makin tinggi (umpan balik tiap digit berhenti) |
+| Pemenang muncul | **fanfare**: lonceng C5–G5–C6, akor C→G (nuansa paduan suara), ditutup gemerincing “kring” mengikuti konfeti |
+| **Tidak Hadir — Undi Ulang** | dua nada turun (penanda “batal”) |
+
+Kontrol:
+
+* Tombol **🔊 / 🔇** di baris kontrol layar undian. Pilihan disimpan di perangkat
+  (`draw_bisu`), jadi tetap mati bila halaman dimuat ulang — berguna kalau ruangan
+  memakai sound system lain.
+* Peramban baru mengizinkan bunyi setelah ada sentuhan/klik pengguna. Halaman ini
+  sudah “membuka kunci” audio pada gestur pertama (klik tombol atau tekan Spasi),
+  jadi suara langsung jalan saat **MULAI** ditekan.
+
+Berkas: `js/undian-audio.js` (modul mandiri, tanpa dependensi). Contoh bunyi
+(rekaman 4 detik dari mesin yang sama, dibuat dengan Python):
+`undian-suara-demo.wav` di folder induk.
 
 ---
 

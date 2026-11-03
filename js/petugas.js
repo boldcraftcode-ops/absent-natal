@@ -63,7 +63,15 @@ save.all = () => {
 const attendedCount = () => S.people.filter((p) => p.attended).length;
 const blockLeft = () => (S.block.to >= S.block.from ? S.block.to - S.block.from + 1 - S.block.used.length : 0);
 
-function findPerson({ token, phone, name } = {}) {
+/**
+ * Cari peserta dari daftar lokal.
+ * `id` dipakai saat petugas memilih nama undangan lewat dropdown (tamu lupa bawa QR).
+ */
+function findPerson({ id, token, phone, name } = {}) {
+  if (id) {
+    const hit = S.people.find((x) => String(x.id) === String(id));
+    if (hit) return hit;
+  }
   if (token) {
     const t = S.people.find((p) => p.token === token);
     if (t) return t;
@@ -222,6 +230,7 @@ function applyServerData(res) {
   }
 
   S.people = incoming.sort((a, b) => a.lottery_no - b.lottery_no);
+  renderInvitedOptions();
   S.meta.event_name = res.event_name || S.meta.event_name;
   S.meta.attendance_open = Boolean(res.attendance_open);
   S.meta.last_sync = new Date().toISOString();
@@ -233,6 +242,7 @@ function enterApp() {
   document.getElementById('view-app').classList.remove('hidden');
   updateChrome();
   renderSearch();
+  renderInvitedOptions();
   switchTab(store.get(K.tab, 'scan'), false);
   startCountdown();
 }
@@ -981,6 +991,82 @@ const renderSearch = debounce(() => {
     </div>`).join('');
 }, 220);
 
+/* ============================================ daftar undangan (dropdown) */
+
+/**
+ * Isi dropdown nama undangan pada tab Tambah.
+ * Tamu yang lupa membawa kartu QR cukup disebutkan namanya oleh petugas:
+ * pilih di sini -> nomor undian yang sudah terbit dipakai ulang (tanpa nomor baru).
+ */
+function renderInvitedOptions() {
+  const sel = document.getElementById('add-invited');
+  const hint = document.getElementById('add-invited-hint');
+  if (!sel) return;
+
+  const semua = S.people.slice().sort((a, b) => a.lottery_no - b.lottery_no);
+  const terpilih = sel.value;
+  sel.innerHTML = '<option value="">— Tamu tanpa undangan (baru) —</option>'
+    + semua.map((p) => `<option value="${esc(p.id)}">${esc(pad3(p.lottery_no))} · ${esc(p.name)}`
+      + `${p.org ? ` — ${esc(p.org)}` : ''}${p.attended ? ' ✓ sudah hadir' : ''}</option>`).join('');
+  if (terpilih && semua.some((p) => String(p.id) === terpilih)) sel.value = terpilih;
+
+  if (hint) {
+    const belum = semua.filter((p) => !p.attended).length;
+    hint.textContent = semua.length
+      ? `${semua.length} undangan tersimpan di HP ini · ${belum} belum hadir. `
+        + 'Ketik nama untuk mencari; memilih nama akan memakai nomor undian yang sudah terbit.'
+      : 'Daftar undangan belum ada di HP ini. Sambungkan internet lalu tekan muat ulang data.';
+  }
+}
+
+/** Tamu dipilih dari daftar undangan: tampilkan ringkasannya, isi form otomatis. */
+function pilihUndangan(id) {
+  const box = document.getElementById('add-invited-picked');
+  const hint = document.getElementById('add-invited-hint');
+  const form = document.getElementById('add-form');
+  if (!box || !form) return;
+
+  if (!id) {
+    box.classList.add('hidden');
+    box.innerHTML = '';
+    form.querySelectorAll('input, select').forEach((el) => {
+      if (el.id === 'add-invited') return;
+      if (el.type === 'checkbox') el.checked = false;
+    });
+    document.getElementById('add-name').value = '';
+    document.getElementById('add-phone').value = '';
+    document.getElementById('add-org').value = '';
+    document.getElementById('add-family').value = '0';
+    if (hint) hint.textContent = 'Ketik nama untuk mencari. Memilih nama akan memakai nomor undian yang sudah terbit.';
+    return;
+  }
+
+  const p = findPerson({ id });
+  if (!p) return;
+
+  document.getElementById('add-name').value = p.name || '';
+  document.getElementById('add-phone').value = p.phone || '';
+  document.getElementById('add-org').value = p.org || '';
+  document.getElementById('add-family').value = String(Math.max(0, Math.min(5, p.family_count || 0)));
+  document.getElementById('add-meal').checked = Boolean(p.wants_meal);
+  document.getElementById('add-souvenir').checked = Boolean(p.wants_souvenir);
+
+  box.classList.remove('hidden');
+  box.innerHTML = `
+    <div class="notice ${p.attended ? 'notice--warn' : 'notice--success'}" style="margin-bottom:12px">
+      <span class="notice__icon" aria-hidden="true">${p.attended ? '⚠️' : '🎫'}</span>
+      <div>
+        <strong>${esc(p.name)}</strong> — nomor undian <strong>${esc(pad3(p.lottery_no))}</strong>
+        <div class="small">${p.attended
+          ? `Sudah tercatat hadir pukul ${esc(fmtTime(p.attended_at))}. Tekan simpan hanya bila ingin memperbarui isian keluarga/kupon.`
+          : 'Belum hadir. Tekan tombol di bawah untuk menghadirkan tanpa membuat nomor baru.'}</div>
+      </div>
+    </div>`;
+
+  const label = document.getElementById('btn-add');
+  if (label) label.textContent = p.attended ? 'Perbarui data kehadiran' : 'Hadirkan tamu ini';
+}
+
 /* ============================================================= tambah */
 async function submitAdd(ev) {
   ev.preventDefault();
@@ -993,6 +1079,31 @@ async function submitAdd(ev) {
   const souvenir = document.getElementById('add-souvenir').checked;
 
   if (name.length < 2) { toast('Nama lengkap wajib diisi.', 'err'); return; }
+
+  // Tamu punya undangan (lupa bawa kartu QR)? Pakai nomor undian yang sudah terbit.
+  const dipilih = document.getElementById('add-invited')?.value || '';
+  if (dipilih) {
+    const p = findPerson({ id: dipilih });
+    if (!p) { toast('Peserta tidak ditemukan di daftar HP ini.', 'err'); return; }
+    if (p.attended) {
+      const ubah = typeof confirm === 'function'
+        ? confirm(`${p.name} sudah tercatat hadir pukul ${fmtTime(p.attended_at)}.\n\n`
+          + 'Perbarui isian keluarga / kupon makan / souvenir dengan nilai di form?')
+        : false;
+      if (!ubah) {
+        toast(`${p.name} sudah hadir — data tidak diubah.`, 'warn', 4000);
+        return;
+      }
+    }
+    hideScanForm();
+    attendPerson(p, 'petugas', { family_count: family, wants_meal: meal, wants_souvenir: souvenir });
+    document.getElementById('add-invited').value = '';
+    pilihUndangan('');
+    renderInvitedOptions();
+    updateChrome();
+    renderSearch();
+    return;
+  }
 
   // Cegah dobel: cocokkan dulu dengan daftar lokal
   const match = findPerson({ phone, name });
@@ -1061,6 +1172,8 @@ async function submitAdd(ev) {
   document.getElementById('add-family').value = '0';
   document.getElementById('add-meal').checked = false;
   document.getElementById('add-souvenir').checked = false;
+  pilihUndangan('');
+  renderInvitedOptions();
   document.getElementById('add-name').focus();
   updateChrome();
   renderSearch();
@@ -1209,6 +1322,7 @@ function switchTab(tab, startCam = true) {
   if (tab === 'cari') { document.getElementById('search-input')?.focus(); renderSearch(); }
   if (tab === 'tambah') {
     document.getElementById('add-result')?.classList.add('hidden');
+    renderInvitedOptions();
     document.getElementById('add-name')?.focus();
   }
 }
@@ -1284,6 +1398,7 @@ function bind() {
   document.getElementById('btn-scan-cancel')?.addEventListener('click', hideScanForm);
 
   document.getElementById('add-form')?.addEventListener('submit', submitAdd);
+  document.getElementById('add-invited')?.addEventListener('change', (e) => pilihUndangan(e.target.value));
 
   window.addEventListener('online', () => {
     setNet(true);

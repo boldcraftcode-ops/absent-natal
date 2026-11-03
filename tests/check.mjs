@@ -159,6 +159,56 @@ console.log('== Syarat PWA (petugas)');
     ['uji tata letak kartu PDF tersedia', existsSync(join(root, 'tests/pdf.test.mjs'))],
     ['catatan PDF menyebut tata letak sama dengan pratinjau',
       /tata letaknya sama dengan pratinjau/i.test(readFileSync(join(root, 'admin.html'), 'utf8'))],
+    // kartu undangan: pratinjau & unduh JPG (canvas, tanpa pustaka tambahan)
+    ['tombol JPG per peserta ada', /data-act="jpg"/.test(readFileSync(join(root, 'js/admin.js'), 'utf8'))],
+    ['tombol JPG semua peserta ada', /id="btn-cards-jpg-all"/.test(readFileSync(join(root, 'admin.html'), 'utf8'))],
+    ['dialog pratinjau JPG ada', /id="dialog-card-jpg"/.test(readFileSync(join(root, 'admin.html'), 'utf8'))],
+    ['pilihan resolusi JPG (300/150/96 dpi)',
+      /id="card-jpg-dpi"[\s\S]{0,400}value="300"[\s\S]{0,200}value="150"[\s\S]{0,200}value="96"/
+        .test(readFileSync(join(root, 'admin.html'), 'utf8'))],
+    ['modul kartu JPG ada', existsSync(join(root, 'js/cards-jpg.js'))],
+    ['tata letak kartu bersama dipakai PDF & JPG',
+      /from '\.\/card-layout\.js'/.test(readFileSync(join(root, 'js/cards-pdf.js'), 'utf8'))
+      && /from '\.\/card-layout\.js'/.test(readFileSync(join(root, 'js/cards-jpg.js'), 'utf8'))],
+    ['modul kartu JPG di-precache service worker',
+      readFileSync(join(root, 'sw.js'), 'utf8').includes("'./js/cards-jpg.js'")
+      && readFileSync(join(root, 'sw.js'), 'utf8').includes("'./js/card-layout.js'")],
+    // tamu lupa bawa kartu QR: pilih nama undangan dari dropdown di tab Tambah
+    ['dropdown nama undangan ada di tab Tambah',
+      /id="add-invited"/.test(readFileSync(join(root, 'petugas.html'), 'utf8'))],
+    ['dropdown diisi dari data undangan', /function renderInvitedOptions/.test(readFileSync(join(root, 'js/petugas.js'), 'utf8'))],
+    ['memilih nama memakai nomor undian lama (tanpa nomor baru)',
+      /findPerson\(\{ id: dipilih \}\)/.test(readFileSync(join(root, 'js/petugas.js'), 'utf8'))],
+    ['memilih nama mengisi form otomatis', /function pilihUndangan/.test(readFileSync(join(root, 'js/petugas.js'), 'utf8'))],
+    // petugas tanpa pemindai QR: kamera bawaan HP + halaman absensi 2 tab
+    ['halaman absensi petugas ada', existsSync(join(root, 'absen.html'))],
+    ['absen.html punya dua tab',
+      /id="tab-undangan"/.test(readFileSync(join(root, 'absen.html'), 'utf8'))
+      && /id="tab-baru"/.test(readFileSync(join(root, 'absen.html'), 'utf8'))],
+    ['absen.html: dropdown nama sesuai rekap',
+      /id="pilih-nama"/.test(readFileSync(join(root, 'absen.html'), 'utf8'))],
+    ['absen.html tidak memakai kamera / pustaka QR',
+      !/html5-qrcode|getUserMedia/.test(readFileSync(join(root, 'absen.html'), 'utf8'))
+      && !/getUserMedia|Html5Qrcode/.test(readFileSync(join(root, 'js/absen-tamu.js'), 'utf8'))],
+    ['halaman peserta punya tab absensi (mode=absen)',
+      /view-petugas/.test(readFileSync(join(root, 'index.html'), 'utf8'))
+      && /mode.*absen|'absen'/.test(readFileSync(join(root, 'js/index.js'), 'utf8'))],
+    ['QR umum mengarah ke halaman absensi',
+      /absen\.html\?mode=absen/.test(readFileSync(join(root, 'js/admin.js'), 'utf8'))],
+    ['absen.html & modulnya di-precache service worker',
+      readFileSync(join(root, 'sw.js'), 'utf8').includes("'./absen.html'")
+      && readFileSync(join(root, 'sw.js'), 'utf8').includes("'./js/absen-tamu.js'")],
+    // suara undian (Web Audio, tanpa berkas audio)
+    ['modul suara undian ada', existsSync(join(root, 'js/undian-audio.js'))],
+    ['tombol suara di layar undian', /id="btn-sound"/.test(readFileSync(join(root, 'undian.html'), 'utf8'))],
+    ['undian memanggil suara mulai/menang',
+      /AUDIO\.mulai\(\)/.test(readFileSync(join(root, 'js/undian.js'), 'utf8'))
+      && /AUDIO\.menang\(\)/.test(readFileSync(join(root, 'js/undian.js'), 'utf8'))],
+    ['suara undian tanpa berkas audio eksternal',
+      !/\.(mp3|wav|ogg|m4a)\b/i.test(readFileSync(join(root, 'js/undian-audio.js'), 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, ''))],
+    ['modul suara di-precache service worker',
+      readFileSync(join(root, 'sw.js'), 'utf8').includes("'./js/undian-audio.js'")],
     ['pustaka jsPDF ikut dikemas', existsSync(join(root, 'vendor/jspdf.umd.min.js'))],
     ['jsPDF di-precache service worker', readFileSync(join(root, 'sw.js'), 'utf8').includes("'./vendor/jspdf.umd.min.js'")]
   ];

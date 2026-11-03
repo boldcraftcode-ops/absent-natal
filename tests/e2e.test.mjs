@@ -1671,7 +1671,7 @@ console.log('== 27. Diagnosa kolom hilang & schema_check()');
   sehat.close();
 }
 
-console.log('== 28. QR umum / kamera bawaan HP — halaman absensi tanpa pemindai');
+console.log('== 28. QR umum / kamera bawaan HP — halaman absensi TAMU (tanpa PIN)');
 {
   // data segar: bagian sebelumnya melakukan reset, jadi impor ulang untuk uji ini
   const imp = await rpc('admin_import', {
@@ -1684,91 +1684,160 @@ console.log('== 28. QR umum / kamera bawaan HP — halaman absensi tanpa peminda
   });
   check('uji absensi: data undangan disiapkan', imp?.inserted === 3, JSON.stringify(imp));
 
-  // 2) index.html?mode=absen&pin=... -> dua tab, dropdown memakai data rekap
-  const absen = await runPage('index.html', { query: '?mode=absen&pin=admin1234' });
-  await until(() => absen.visible('view-petugas'), { label: 'layar absensi petugas' });
-  check('mode=absen: layar absensi petugas tampil', absen.visible('view-petugas'));
-  check('mode=absen: tab tamu undangan aktif',
-    absen.$('#p-tab-undangan').getAttribute('aria-selected') === 'true');
-  await until(() => absen.document.querySelectorAll('#p-pilih option').length > 1,
-    { label: 'dropdown nama rekap' });
-  const opsi = [...absen.document.querySelectorAll('#p-pilih option')].slice(1);
-  check('mode=absen: dropdown berisi nama sesuai rekap hadir', opsi.length >= 3, String(opsi.length));
-  check('mode=absen: opsi memuat nomor undian', /\d{3}/.test(opsi[0].textContent), opsi[0].textContent);
+  // ---------- 1) tautan lama ?mode=absen diarahkan ke halaman tamu
+  const lama = await runPage('index.html', { query: '?mode=absen&pin=admin1234' });
+  await until(() => /absen\.html/.test(lama.errors.join(' ') + String(lama.window.location.href)),
+    { label: 'pengalihan mode=absen', timeout: 3000 }).catch(() => {});
+  check('mode=absen lama tidak lagi memakai layar petugas',
+    !lama.document.getElementById('view-petugas'));
+  lama.close();
 
-  // pilih peserta yang belum hadir -> tombol Hadirkan aktif
-  const belum = opsi.find((o) => !/sudah hadir/.test(o.textContent));
-  check('mode=absen: ada peserta belum hadir untuk diuji', Boolean(belum));
-  const idBelum = belum.value;
-  absen.$('#p-pilih').value = idBelum;
-  absen.$('#p-pilih').dispatchEvent(new absen.window.Event('change', { bubbles: true }));
-  await sleep(150);
-  check('mode=absen: memilih nama menampilkan kartu undangan',
-    !absen.$('#p-kartu').classList.contains('hidden')
-    && /nomor undian/i.test(absen.$('#p-kartu').textContent), absen.$('#p-kartu').textContent.slice(0, 80));
-  check('mode=absen: tombol Hadirkan aktif', absen.$('#p-btn-hadir').disabled === false);
+  // ---------- 2) absen.html: TANPA PIN, langsung bisa mencari nama
+  const tamu = await runPage('absen.html');
+  await until(() => tamu.visible('view-cari'), { label: 'layar cari absen.html' });
+  check('absen.html: langsung terbuka tanpa PIN', tamu.visible('view-cari'));
+  check('absen.html: tidak ada kolom PIN', !tamu.document.getElementById('pin-input'));
+  check('absen.html: tanpa memuat token undangan (staff_data)',
+    !/staff_data/.test(tamu.errors.join(' ')));
+  await until(() => /Online/.test(tamu.text('#net-badge')), { label: 'status online absen' }).catch(() => {});
 
-  // pencarian menyaring dropdown
-  absen.$('#p-cari').value = 'Lupa';
-  absen.$('#p-cari').dispatchEvent(new absen.window.Event('input', { bubbles: true }));
-  await sleep(120);
-  const hasilCari = [...absen.document.querySelectorAll('#p-pilih option')].slice(1);
-  check('mode=absen: pencarian menyaring daftar', hasilCari.length === 1
-    && /Uji Lupa Kartu/.test(hasilCari[0].textContent), hasilCari.map((o) => o.textContent).join('|'));
+  // cari nama -> daftar pilihan muncul dengan tombol besar
+  tamu.$('#cari-nama').value = 'Lupa Kartu';
+  tamu.$('#cari-nama').dispatchEvent(new tamu.window.Event('input', { bubbles: true }));
+  await until(() => tamu.document.querySelectorAll('#daftar-nama [data-i]').length === 1,
+    { label: 'hasil pencarian nama' });
+  const opsi = [...tamu.document.querySelectorAll('#daftar-nama [data-i]')];
+  check('absen.html: pencarian menemukan nama, bukan dropdown kosong', opsi.length === 1,
+    String(opsi.length));
+  check('absen.html: hasil pencarian hanya menampilkan nama (tanpa nomor undian)',
+    /Uji Lupa Kartu/.test(opsi[0].textContent) && !/\d{3}\b/.test(opsi[0].textContent),
+    opsi[0].textContent.trim());
 
-  // hadirkan -> nomor undian lama, tercatat di server
+  // pilih nama -> konfirmasi "Betul ini Anda?"
+  opsi[0].click();
+  await until(() => tamu.visible('view-konfirmasi'), { label: 'konfirmasi nama' });
+  check('absen.html: konfirmasi menampilkan nama yang dipilih',
+    /Uji Lupa Kartu/.test(tamu.text('#konf-nama')), tamu.text('#konf-nama'));
+  check('absen.html: ada tombol "Bukan saya"', Boolean(tamu.$('#btn-bukan-saya')));
+
+  // hadirkan -> nomor undian LAMA yang tampil (bukan nomor baru)
   const nomorLama = Number((await sql("select lottery_no from participants where name='Uji Lupa Kartu'"))[0].lottery_no);
-  const idLupa = hasilCari[0].value;            // peserta hasil pencarian 'Lupa'
-  absen.$('#p-pilih').value = idLupa;
-  absen.$('#p-pilih').dispatchEvent(new absen.window.Event('change', { bubbles: true }));
-  await sleep(120);
-  usePage(absen);
-  absen.$('#p-btn-hadir').click();
-  await until(() => absen.visible('view-success'), { label: 'sukses absensi petugas' });
-  check('mode=absen: nomor undian tampil besar', absen.text('#success-no') === pad3(nomorLama),
-    `${absen.text('#success-no')} vs ${pad3(nomorLama)}`);
-  const sesudah = (await sql("select attended, lottery_no from participants where name='Uji Lupa Kartu'"))[0];
-  check('mode=absen: kehadiran tersimpan di server', sesudah.attended === true);
-  check('mode=absen: nomor undian lama tidak berubah', Number(sesudah.lottery_no) === nomorLama);
-  absen.close();
+  tamu.$('#u-family').value = '2';
+  tamu.$('#u-meal').checked = true;
+  tamu.$('#btn-u-simpan').click();
+  await until(() => tamu.visible('view-hasil'), { label: 'hasil absensi tamu' });
+  check('absen.html: nomor undian lama tampil besar',
+    tamu.text('#view-hasil').includes(pad3(nomorLama)),
+    tamu.text('#view-hasil').slice(0, 80));
+  const sesudah = (await sql("select attended, lottery_no, family_count, wants_meal from participants where name='Uji Lupa Kartu'"))[0];
+  check('absen.html: kehadiran tersimpan di server', sesudah.attended === true);
+  check('absen.html: nomor undian tidak berubah (tidak dobel)', Number(sesudah.lottery_no) === nomorLama);
+  check('absen.html: keluarga & kupon tersimpan', sesudah.family_count === 2 && sesudah.wants_meal === true,
+    JSON.stringify(sesudah));
+  const dupes = await sql("select count(*)::int c from participants where name = 'Uji Lupa Kartu'");
+  check('absen.html: tidak ada baris ganda untuk tamu yang sama', dupes[0].c === 1, String(dupes[0].c));
+  check('absen.html: nomor undian tetap dalam rentang undangan (1-500)',
+    Number(sesudah.lottery_no) <= 500, String(sesudah.lottery_no));
 
-  // 3) absen.html mandiri: minta PIN sekali, lalu dua tab siap
-  const mandiri = await runPage('absen.html', { query: '?mode=absen' });
-  await until(() => mandiri.visible('view-gate'), { label: 'gerbang PIN absen.html' });
-  check('absen.html: meminta PIN petugas sekali', mandiri.visible('view-gate'));
-  mandiri.$('#pin-input').value = 'admin1234';
-  fire(mandiri, '#pin-form');
-  await until(() => mandiri.visible('view-absen'), { label: 'halaman absensi terbuka' });
-  check('absen.html: PIN benar -> halaman absensi terbuka', mandiri.visible('view-absen'));
-  await until(() => mandiri.document.querySelectorAll('#pilih-nama option').length > 1,
-    { label: 'dropdown absen.html' });
-  check('absen.html: dua tab tersedia',
-    Boolean(mandiri.$('#tab-undangan')) && Boolean(mandiri.$('#tab-baru')));
-  check('absen.html: dropdown nama dari rekap terisi',
-    mandiri.document.querySelectorAll('#pilih-nama option').length >= 4,
-    String(mandiri.document.querySelectorAll('#pilih-nama option').length));
-  check('absen.html: PIN diingat di HP',
-    Boolean(mandiri.window.localStorage.getItem('absen_pin')));
-  check('absen.html: daftar undangan ikut disimpan untuk mode sinyal lemah',
-    (JSON.parse(mandiri.window.localStorage.getItem('absen_people') || '[]')).length >= 3);
+  // nama yang sudah hadir ditandai jelas
+  check('absen.html: setelah selesai, tombol "Tamu berikutnya" ada',
+    Boolean(tamu.$('#btn-hasil-lagi')));
+  tamu.$('#btn-hasil-lagi').click();
+  await until(() => tamu.visible('view-cari'), { label: 'kembali ke pencarian' });
+  tamu.$('#cari-nama').value = 'Lupa';
+  tamu.$('#cari-nama').dispatchEvent(new tamu.window.Event('input', { bubbles: true }));
+  await until(() => tamu.document.querySelectorAll('#daftar-nama [data-i]').length >= 1,
+    { label: 'pencarian kedua' });
+  const lagi = [...tamu.document.querySelectorAll('#daftar-nama [data-i]')];
+  const tanda = lagi.find((b) => /Uji Lupa Kartu/.test(b.textContent));
+  check('absen.html: nama yang sudah hadir diberi tanda',
+    tanda && /sudah hadir/.test(tanda.textContent), tanda?.textContent?.trim());
+  if (tanda) {
+    tanda.click();
+    await until(() => tamu.visible('view-konfirmasi'), { label: 'konfirmasi sudah hadir' });
+    check('absen.html: konfirmasi memberi peringatan "sudah tercatat hadir"',
+      /sudah tercatat hadir/i.test(tamu.$('#konf-status').textContent),
+      tamu.$('#konf-status').textContent.slice(0, 80));
+  }
 
-  // tab 2: tamu tanpa undangan
-  mandiri.$('#tab-baru').click();
-  await sleep(100);
-  check('absen.html: tab tanpa undangan bisa dibuka',
-    !mandiri.$('#panel-baru').classList.contains('hidden'));
-  mandiri.$('#b-name').value = 'Tamu Kamera HP';
-  mandiri.$('#b-phone').value = '081355550000';
-  mandiri.$('#b-family').value = '1';
-  mandiri.$('#b-meal').checked = true;
-  fire(mandiri, '#walkin-form');
-  await until(() => /Kehadiran tercatat|Sudah tercatat/.test(mandiri.$('#hasil').textContent),
-    { label: 'hasil tamu baru' });
+  // ---------- 3) jalur tamu tanpa undangan
+  tamu.$('#btn-bukan-saya').click();
+  await sleep(60);
+  tamu.$('#btn-tanpa-undangan').click();
+  await until(() => tamu.visible('view-baru'), { label: 'form tanpa undangan' });
+  check('absen.html: jalur tanpa undangan bisa dibuka', tamu.visible('view-baru'));
+  tamu.$('#b-name').value = 'Tamu Kamera HP';
+  tamu.$('#b-phone').value = '081355550000';
+  tamu.$('#b-family').value = '1';
+  tamu.$('#b-meal').checked = true;
+  fire(tamu, '#walkin-form');
+  await until(() => tamu.visible('view-hasil') && /Kehadiran tercatat|Sudah tercatat/.test(tamu.text('#view-hasil')),
+    { label: 'hasil tamu tanpa undangan' });
   const baru = (await sql("select lottery_no, attended, wants_meal from participants where name='Tamu Kamera HP'"))[0];
   check('absen.html: tamu tanpa undangan dapat nomor baru (>= 501)',
     baru && Number(baru.lottery_no) >= 501, String(baru?.lottery_no));
   check('absen.html: tamu tanpa undangan tersimpan hadir', baru?.attended === true && baru?.wants_meal === true);
-  mandiri.close();
+  tamu.close();
+
+  // ---------- 4) mode kios: layar bersih & reset otomatis
+  const kios = await runPage('absen.html', { query: '?kios=1&undian=1' });
+  await until(() => kios.visible('view-cari'), { label: 'kios absen' });
+  check('mode kios: kelas is-kios aktif di <body>', kios.document.body.classList.contains('is-kios'));
+  check('mode kios: nomor undian ditampilkan untuk panitia',
+    /mode panitia/i.test(kios.$('#topbar-sub').textContent), kios.$('#topbar-sub').textContent);
+  kios.$('#cari-nama').value = 'Kamera Satu';
+  kios.$('#cari-nama').dispatchEvent(new kios.window.Event('input', { bubbles: true }));
+  await until(() => kios.document.querySelectorAll('#daftar-nama [data-i]').length >= 1,
+    { label: 'pencarian mode kios' });
+  check('mode kios: nomor undian ikut tampil di daftar',
+    /\d{3}/.test(kios.$('#daftar-nama').textContent), kios.$('#daftar-nama').textContent.trim().slice(0, 60));
+  kios.close();
+
+  // ---------- 4b) mode pantau: penghitung sisa undangan untuk pemeriksaan manual
+  const pantau = await runPage('absen.html', { query: '?pantau=1' });
+  await until(() => pantau.visible('view-cari'), { label: 'layar pantau' });
+  pantau.$('#cari-nama').value = 'Kamera';
+  pantau.$('#cari-nama').dispatchEvent(new pantau.window.Event('input', { bubbles: true }));
+  await until(() => /Mode pemantauan panitia/.test(pantau.$('#info-diundang').textContent),
+    { label: 'penghitung sisa undangan' });
+  check('mode pantau: sisa undangan tampil untuk panitia',
+    /belum tercatat hadir:\s*<strong>\d+<\/strong>/.test(pantau.$('#info-diundang').innerHTML),
+    pantau.$('#info-diundang').textContent.trim().slice(0, 90));
+  pantau.close();
+
+  // ---------- 5) panel admin: meja registrasi versi panitia
+  const admin = await runPage('admin.html');
+  await until(() => admin.visible('view-login'), { label: 'login admin' });
+  admin.$('#pin-input').value = 'admin1234';
+  fire(admin, '#login-form');
+  await until(() => admin.visible('view-app'), { label: 'panel admin' });
+  admin.$('#btn-meja').click();
+  await until(() => !admin.$('#meja-panitia').classList.contains('hidden'),
+    { label: 'meja registrasi panitia' });
+  check('admin: tombol "Meja registrasi" membuka panel', !admin.$('#meja-panitia').classList.contains('hidden'));
+  check('admin: penghitung undangan belum hadir tampil',
+    /^\d+$/.test(admin.text('#meja-sisa').trim()), admin.text('#meja-sisa'));
+  await until(() => admin.document.querySelectorAll('#m-pilih option').length > 1 ||
+    /^0$/.test(admin.text('#meja-sisa').trim()), { label: 'dropdown meja panitia' });
+  const opsiM = [...admin.document.querySelectorAll('#m-pilih option')].slice(1);
+  check('admin: dropdown meja berisi nama undangan', opsiM.length >= 1, String(opsiM.length));
+  if (opsiM.length) {
+    admin.$('#m-pilih').value = opsiM[0].value;
+    admin.$('#m-pilih').dispatchEvent(new admin.window.Event('change', { bubbles: true }));
+    await sleep(120);
+    check('admin: memilih nama menampilkan kartu nomor undian',
+      !admin.$('#m-kartu').classList.contains('hidden')
+      && /nomor undian/i.test(admin.$('#m-kartu').textContent));
+    check('admin: tombol Hadirkan aktif', admin.$('#m-hadirkan').disabled === false);
+    const sisaSebelum = Number(admin.text('#meja-sisa').trim());
+    admin.$('#m-hadirkan').click();
+    await until(() => Number(admin.text('#meja-sisa').trim()) === sisaSebelum - 1,
+      { label: 'penghitung sisa turun satu' });
+    check('admin: sisa undangan turun tepat satu setelah Hadirkan',
+      Number(admin.text('#meja-sisa').trim()) === sisaSebelum - 1,
+      `${admin.text('#meja-sisa')} (sebelum ${sisaSebelum})`);
+  }
+  admin.close();
 }
 
 console.log('== 29. Layar undian — suara natal & mendebarkan');

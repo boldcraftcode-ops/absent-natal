@@ -182,7 +182,107 @@
             <button class="btn btn--outline btn--sm" id="btn-cards-pdf-all">📚 Ekspor semua peserta (PDF)</button>
             <button class="btn btn--outline btn--sm" id="btn-links-xlsx">⬇️ Excel link undangan</button>
             <button class="btn btn--outline btn--sm" id="btn-general-qr">🔳 QR umum meja registrasi</button>
+            <button class="btn btn--outline btn--sm" id="btn-meja">🗒️ Meja registrasi (mode panitia)</button>
           </div>
+
+          <!-- ============ meja registrasi versi PANITIA (PIN sudah aktif) ============ -->
+          <section id="meja-panitia" class="hidden" style="margin-top:16px">
+            <div class="card card--flat stack" style="padding:14px;border:1.5px solid var(--kraft-300)">
+              <div class="row row--between" style="gap:8px;flex-wrap:wrap">
+                <h2 class="card__title" style="margin:0">🗒️ Meja registrasi — mode panitia</h2>
+                <button class="btn btn--outline btn--sm" id="btn-meja-tutup" type="button">✕ Tutup</button>
+              </div>
+              <p class="card__sub" style="margin:0">
+                Dipakai bila tamu menyebutkan namanya ke panitia. Nomor undian selalu
+                nomor yang sudah terbit — sebut angka besar yang tampil setelah menekan
+                <strong>Hadirkan</strong>.
+              </p>
+
+              <div class="notice notice--info" style="margin:0">
+                <span class="notice__icon" aria-hidden="true">📋</span>
+                <div class="small">
+                  Undangan yang belum tercatat hadir:
+                  <strong id="meja-sisa">—</strong>. Angka ini harus turun <strong>satu</strong>
+                  tiap tamu. Turun dua = ada data dobel; melompat dua = ada tamu salah memilih nama.
+                  <span id="meja-hadir" style="color:var(--ink-soft)"></span>
+                </div>
+              </div>
+
+              <div class="card card--flat stack" style="padding:12px;background:rgba(69,80,38,.05)">
+                <label class="field" style="margin:0">
+                  <span class="label">Cari nama / asal / nomor undian</span>
+                  <input class="input" id="m-cari" type="search" autocomplete="off" spellcheck="false"
+                         placeholder="Ketik nama tamu…">
+                </label>
+                <label class="field" style="margin:0">
+                  <span class="label">Nama sesuai rekap hadir</span>
+                  <select class="select" id="m-pilih">
+                    <option value="">— Pilih nama tamu —</option>
+                  </select>
+                </label>
+
+                <div id="m-kartu" class="hidden"></div>
+
+                <label class="field" style="margin:0">
+                  <span class="label">Jumlah anggota keluarga yang ikut</span>
+                  <select class="select" id="m-family">
+                    <option value="0">Tidak membawa keluarga</option>
+                    <option value="1">1 orang</option>
+                    <option value="2">2 orang</option>
+                    <option value="3">3 orang</option>
+                    <option value="4">4 orang</option>
+                    <option value="5">5 orang (maksimal)</option>
+                  </select>
+                </label>
+                <div class="check-card">
+                  <label class="check-row">
+                    <input type="checkbox" id="m-meal">
+                    <span class="check-row__box" aria-hidden="true">🍱</span>
+                    <span class="check-row__text"><strong>Kupon Makan</strong><span>Termasuk anggota keluarga</span></span>
+                  </label>
+                  <label class="check-row">
+                    <input type="checkbox" id="m-souvenir">
+                    <span class="check-row__box" aria-hidden="true">🎁</span>
+                    <span class="check-row__text"><strong>Souvenir</strong><span>Satu per peserta hadir</span></span>
+                  </label>
+                </div>
+                <button class="btn btn--red btn--xl btn--block" id="m-hadirkan" type="button" disabled>
+                  Hadirkan tamu ini
+                </button>
+                <p class="small" style="color:var(--ink-soft);margin:0" id="m-info">—</p>
+              </div>
+
+              <div class="card card--flat stack" style="padding:12px">
+                <h3 class="card__title" style="margin:0">➕ Tamu tanpa undangan (didaftarkan panitia)</h3>
+                <form id="m-form-baru" novalidate class="stack">
+                  <label class="field" style="margin:0">
+                    <span class="label">Nama lengkap <span style="color:var(--red-600)">*</span></span>
+                    <input class="input" id="m-b-name" required maxlength="80" placeholder="Contoh: Rudi Hartono">
+                  </label>
+                  <label class="field" style="margin:0">
+                    <span class="label">No. HP / WA</span>
+                    <input class="input" id="m-b-phone" type="tel" inputmode="tel" maxlength="20"
+                           placeholder="Boleh dikosongkan bila panitia melengkapi nanti">
+                  </label>
+                  <label class="field" style="margin:0">
+                    <span class="label">Asal / instansi / wilayah</span>
+                    <input class="input" id="m-b-org" maxlength="80" placeholder="Contoh: Wilayah Medan Kota">
+                  </label>
+                  <button class="btn btn--outline btn--block" id="m-b-simpan" type="submit">
+                    Daftarkan &amp; tandai hadir
+                  </button>
+                </form>
+              </div>
+
+              <div class="card card--flat stack" style="padding:12px">
+                <div class="row row--between" style="gap:8px">
+                  <h3 class="card__title" style="margin:0">🕘 Aktivitas terakhir</h3>
+                  <button class="btn btn--outline btn--sm" id="m-muat" type="button">⟳ Muat ulang</button>
+                </div>
+                <ol class="small" id="m-aktivitas" style="margin:0;padding-left:18px;color:var(--ink-soft)">—</ol>
+              </div>
+            </div>
+          </section>
           <p class="small" style="color:var(--ink-soft);margin:0" id="cards-pdf-note">
             PDF diunduh langsung (tanpa dialog cetak), ukuran kertasnya sudah pas dan
             tata letaknya sama dengan pratinjau di bawah — teks panjang otomatis mengecil,

@@ -1,42 +1,55 @@
 /* ==========================================================================
-   js/absen-tamu.js — halaman absensi untuk PETUGAS yang ponselnya tidak bisa
-   memakai pemindai QR di dalam browser (petugas.html).
+   js/absen-tamu.js — halaman ABSENSI UNTUK TAMU (absen.html)
 
-   Alur:
-     1. Petugas memindai QR dengan aplikasi KAMERA BAWAAN ponsel.
-        - QR umum meja registrasi -> membuka absen.html (halaman ini)
-        - QR undangan tamu       -> membuka index.html (halaman tamu)
-     2. absen.html punya DUA TAB:
-          • Tamu undangan       -> cari & pilih nama dari rekap, nomor undian lama dipakai
-          • Tamu tanpa undangan -> isi nama + HP, dapat nomor baru
-     3. Nomor undian tampil besar untuk disebutkan ke tamu.
+   Siapa yang memegang HP di sini? TAMU itu sendiri (dibuka dari QR umum meja
+   registrasi, atau dari tautan "Belum membawa undangan?"). Karena itu:
 
-   Tidak butuh kamera & tidak butuh pustaka QR. Daftar undangan diambil sekali
-   lewat staff_data(PIN) lalu disimpan di HP, sehingga pencarian tetap jalan
-   walau sinyal di lokasi lemah.
+     • TIDAK ADA PIN, dan halaman ini TIDAK pernah memanggil staff_data().
+       (staff_data mengembalikan token undangan semua peserta — tidak boleh
+       dibuka bebas di HP tamu.)
+     • Daftar nama diambil lewat lookup_invited() yang hanya mengembalikan
+       nama + asal + status hadir. Nomor undian hanya ikut bila
+       undianTampil=true (dipakai saat panitia mendampingi; lihat §13c README).
+     • Kehadiran dicatat lewat attend_invited() memakai "kunci" acak per orang
+       sehingga nomor undian tetap 1-500 miliknya, TIDAK membuat nomor baru.
+
+   Dua jalur:
+     (A) Tamu undangan yang TIDAK membawa undangan fisik  -> cari nama, pilih,
+         konfirmasi "Betul ini Anda?", lalu Ya saya hadir.
+     (B) Tamu tanpa undangan -> form biasa, nomor baru >= 501.
+   Semua panggilan mengembalikan sisa_belum_hadir, jadi pemeriksaan data dobel
+   manual tetap bisa dilakukan panitia (lihat juga panel admin §13c).
    ========================================================================== */
 import { api, isConfigured } from '../api.js';
-import { pad3, fmtTime, esc, toast, normPhone, store, online } from '../util.js';
+import { pad3, fmtTime, esc, toast, normPhone, online } from '../util.js';
 
-const K = { pin: 'absen_pin', data: 'absen_people', at: 'absen_at' };
+const K = { kios: 'absen_kios', tua: 'absen_terakhir' };
+const JEDA_CARI = 320;     // ms, debounce pencarian
+const JEDA_KIOS = 25000;   // ms, auto-reset layar kios
 
 const S = {
-  pin: '',
-  masuk: false,
   open: true,
   eventName: 'Acara Natal',
-  all: [],          // semua peserta dari staff_data
-  hasil: [],        // hasil filter
-  terpilih: null,
-  busy: false
+  hasil: [],            // hasil lookup_invited
+  terpilih: null,       // { kunci, nama, org, hadir, hadir_pada }
+  sisa: null,           // sisa_belum_hadir dari server (untuk pemantauan manual)
+  busy: false,
+  kios: false,
+  pantau: false,        // mode pemantauan panitia (penghitung sisa undangan)
+  undianTampil: false,  // tampilkan nomor undian di daftar (dipilih panitia)
+  timerKios: 0,
+  timerCari: 0,
+  tanya: 0
 };
 
 const $ = (id) => document.getElementById(id);
 const viewEl = (n) => $('view-' + n);
 
 function show(name) {
-  ['gate', 'absen', 'error'].forEach((v) => viewEl(v)?.classList.toggle('hidden', v !== name));
+  ['cari', 'konfirmasi', 'baru', 'hasil', 'error']
+    .forEach((v) => viewEl(v)?.classList.toggle('hidden', v !== name));
   window.scrollTo(0, 0);
+  jadwalkanKios(name);
 }
 
 function setNet(ok) {
@@ -54,162 +67,188 @@ function setEventName(name) {
   document.title = `Absensi Tamu — ${name}`;
 }
 
-/* -------------------------------------------------------------- gerbang PIN */
-async function masukDenganPin(pin, { diam = false } = {}) {
-  const err = $('gate-error');
-  if (err) err.classList.add('hidden');
-  try {
-    const res = await api.staffData(pin);
-    if (!res?.ok) throw new Error(res?.message || 'PIN ditolak.');
-    S.pin = pin;
-    S.masuk = true;
-    S.open = Boolean(res.attendance_open);
-    setEventName(res.event_name);
-    S.all = (res.participants || []).slice().sort((a, b) => a.lottery_no - b.lottery_no);
-    store.set(K.pin, pin);
-    store.set(K.data, S.all);
-    store.set(K.at, new Date().toISOString());
-    bukaAbsen();
-    return true;
-  } catch (e) {
-    if (!diam) {
-      const pesan = e?.code === 'offline'
-        ? 'Tidak ada koneksi. Sambungkan internet untuk masuk pertama kali.'
-        : (e?.message || 'PIN tidak dapat diperiksa.');
-      if (err) { err.textContent = pesan; err.classList.remove('hidden'); }
-      toast(pesan, 'err', 5000);
-    }
-    return false;
-  }
+/* ------------------------------------------------------------ mode kios */
+function jadwalkanKios(view) {
+  clearTimeout(S.timerKios);
+  if (!S.kios) return;
+  if (view === 'hasil') { S.timerKios = setTimeout(ulang, JEDA_KIOS); return; }
+  S.timerKios = setTimeout(ulang, JEDA_KIOS * 3);
 }
 
-function bukaAbsen() {
-  show('absen');
-  const jam = store.get(K.at, '');
-  const info = $('daftar-info');
-  if (info) {
-    info.textContent = `${S.all.length} undangan dimuat`
-      + (jam ? ` (${fmtTime(jam)})` : '') + ' · data tersimpan di HP ini.';
-  }
-  filterDaftar();
-  setTab('undangan');
-}
-
-/* ---------------------------------------------------------------- dua tab */
-function setTab(tab) {
-  for (const key of ['undangan', 'baru']) {
-    $('panel-' + key)?.classList.toggle('hidden', key !== tab);
-    const btn = $('tab-' + key);
-    if (btn) btn.setAttribute('aria-selected', key === tab ? 'true' : 'false');
-  }
-  S.tab = tab;
-  if (tab === 'baru') setTimeout(() => $('b-name')?.focus(), 60);
-}
-
-/* -------------------------------------------------- tab 1: daftar undangan */
-function filterDaftar() {
-  const q = ($('cari-nama')?.value || '').trim().toLowerCase();
-  const qDigit = normPhone(q);
-  const dasar = S.all;
-  const hasil = !q ? dasar : dasar.filter((p) =>
-    String(p.name || '').toLowerCase().includes(q)
-    || String(p.org || '').toLowerCase().includes(q)
-    || (qDigit && String(p.phone || '').includes(qDigit))
-    || pad3(p.lottery_no) === q
-    || String(p.lottery_no) === q);
-  S.hasil = hasil.slice(0, 60);
-
-  const sel = $('pilih-nama');
-  if (sel) {
-    sel.innerHTML = '<option value="">— Pilih nama tamu —</option>'
-      + S.hasil.map((p) => `<option value="${esc(p.id)}">${esc(pad3(p.lottery_no))} · ${esc(p.name)}`
-        + `${p.org ? ' — ' + esc(p.org) : ''}${p.attended ? ' ✓ sudah hadir' : ''}</option>`).join('');
-    sel.value = '';
-  }
-  const info = $('daftar-info');
-  if (info) {
-    const semua = S.all.length;
-    const belum = S.all.filter((p) => !p.attended).length;
-    info.textContent = !semua
-      ? 'Daftar undangan belum tersimpan di HP ini. Sambungkan internet lalu muat ulang.'
-      : (q ? `${S.hasil.length} hasil untuk “${q}”` : `${semua} undangan · ${belum} belum hadir`)
-        + (q && !S.hasil.length ? ' — coba kata kunci lain, atau pakai tab "Tamu tanpa undangan".' : '');
-  }
-  $('kartu-undangan')?.classList.add('hidden');
+function ulang() {
   S.terpilih = null;
+  S.hasil = [];
+  const cari = $('cari-nama');
+  if (cari) cari.value = '';
+  const box = $('daftar-nama');
+  if (box) box.innerHTML = '';
+  $('cari-kosong')?.classList.add('hidden');
+  const st = $('status-cari');
+  if (st) st.textContent = '—';
+  $('walkin-form')?.reset();
+  if ($('b-family')) $('b-family').value = '0';
+  show('cari');
+  cari?.focus();
 }
 
-function pilihTamu(id) {
-  const box = $('kartu-undangan');
+/* --------------------------------------------------------- 1. cari nama */
+function renderHasil(rows) {
+  const box = $('daftar-nama');
+  const kosong = $('cari-kosong');
   if (!box) return;
-  if (!id) { box.classList.add('hidden'); box.innerHTML = ''; S.terpilih = null; return; }
-  const p = S.hasil.find((x) => String(x.id) === String(id)) || S.all.find((x) => String(x.id) === String(id));
-  if (!p) return;
-  S.terpilih = p;
+  S.hasil = rows;
 
-  box.classList.remove('hidden');
-  box.innerHTML = `
-    <div class="notice ${p.attended ? 'notice--warn' : 'notice--info'}" style="margin-bottom:12px">
-      <span class="notice__icon" aria-hidden="true">${p.attended ? '⚠️' : '🎫'}</span>
-      <div>
-        <strong>${esc(p.name)}</strong> — nomor undian <strong>${esc(pad3(p.lottery_no))}</strong>
-        <div class="small">${p.org ? esc(p.org) + ' · ' : ''}${p.attended
-          ? `sudah tercatat hadir pukul ${esc(fmtTime(p.attended_at))}`
-          : 'belum hadir'}</div>
-      </div>
-    </div>`;
+  if (!rows.length) {
+    box.innerHTML = '';
+    kosong?.classList.remove('hidden');
+    return;
+  }
+  kosong?.classList.add('hidden');
+
+  box.innerHTML = rows.map((p, i) => `
+    <button class="pilih-nama__item${p.hadir ? ' is-hadir' : ''}" type="button"
+            role="option" data-i="${i}" aria-selected="false">
+      <span class="pilih-nama__teks">
+        <strong>${esc(p.nama)}</strong>
+        <span class="small">${esc(p.org || '—')}</span>
+      </span>
+      <span class="pilih-nama__kanan">
+        ${S.undianTampil && p.no ? `<span class="num">${esc(pad3(p.no))}</span>` : ''}
+        ${p.hadir
+          ? '<span class="pill pill--hadir">✓ sudah hadir</span>'
+          : '<span class="pill pill--belum">pilih</span>'}
+      </span>
+    </button>`).join('');
+}
+
+async function cariNama(q) {
+  const status = $('status-cari');
+  const box = $('daftar-nama');
+  const kata = (q || '').trim();
+
+  if (kata.length < 2) {
+    if (box) box.innerHTML = '';
+    $('cari-kosong')?.classList.add('hidden');
+    if (status) status.textContent = kata ? 'Ketik minimal 2 huruf.' : '—';
+    return;
+  }
+
+  if (!online()) { setNet(false); if (status) status.textContent = 'Tidak ada koneksi. Coba lagi.'; return; }
+
+  const tanya = ++S.tanya;
+  if (status) status.textContent = 'Mencari…';
+  try {
+    const res = await api.lookupInvited(kata, { limit: 20, tampilNomor: S.undianTampil });
+    if (tanya !== S.tanya) return;               // hasil lama, abaikan
+    setNet(true);
+    if (res?.status === 'closed' || res?.ok === false) {
+      S.open = false;
+      tampilTutup();
+      return;
+    }
+    S.open = true;
+    if (typeof res.sisa_belum_hadir === 'number') S.sisa = res.sisa_belum_hadir;
+    if (res.event_name) setEventName(res.event_name);
+    if (S.pantau) renderPantau();
+
+    const rows = res.rows || [];
+    renderHasil(rows);
+    if (status) {
+      status.textContent = !rows.length
+        ? `Tidak ada nama yang cocok dengan “${kata}”.`
+        : `${rows.length} nama cocok` + (rows.length === 20 ? ' (persempit dengan nama depan)' : '');
+    }
+  } catch (err) {
+    if (tanya !== S.tanya) return;
+    if (err?.code === 'offline') {
+      setNet(false);
+      if (status) status.textContent = 'Koneksi terputus.';
+    } else {
+      if (status) status.textContent = err?.message || 'Gagal mencari nama.';
+      toast(err?.message || 'Gagal mencari nama.', 'err', 5000);
+    }
+  }
+}
+
+/* ------------------------------------------------ 2. konfirmasi & simpan */
+function bukaKonfirmasi(p) {
+  S.terpilih = p;
+  const nama = $('konf-nama');
+  const org = $('konf-org');
+  if (nama) nama.textContent = p.nama || '—';
+  if (org) org.textContent = p.org || '—';
+
+  const st = $('konf-status');
+  if (st) {
+    st.className = p.hadir ? 'notice notice--warn' : 'notice notice--info hidden';
+    st.innerHTML = p.hadir
+      ? '<span class="notice__icon" aria-hidden="true">⚠️</span><div>'
+        + `<strong>Nama ini sudah tercatat hadir</strong> pukul ${esc(fmtTime(p.hadir_pada))}. `
+        + 'Bila ini memang Anda, tidak perlu mengisi apa pun lagi — '
+        + '<strong>hubungi panitia</strong> bila ada yang perlu diubah.</div>'
+      : '';
+    st.classList.toggle('hidden', !p.hadir);
+  }
 
   const fam = $('u-family');
-  if (fam) fam.value = String(Math.max(0, Math.min(5, p.family_count || 0)));
-  const meal = $('u-meal');
-  const souv = $('u-souvenir');
-  if (meal) meal.checked = Boolean(p.wants_meal);
-  if (souv) souv.checked = Boolean(p.wants_souvenir);
+  if (fam) fam.value = '0';
+  if ($('u-meal')) $('u-meal').checked = false;
+  if ($('u-souvenir')) $('u-souvenir').checked = false;
 
-  const btn = $('btn-u-simpan');
-  if (btn) {
-    btn.disabled = false;
-    btn.textContent = p.attended ? 'Perbarui data kehadiran' : 'Tandai Hadir';
+  const simpan = $('btn-u-simpan');
+  if (simpan) {
+    simpan.disabled = false;
+    simpan.textContent = p.hadir ? '✅ Sudah, saya sudah tercatat' : '✅ Ya, saya hadir';
   }
+  show('konfirmasi');
 }
 
 async function simpanUndangan() {
   const p = S.terpilih;
-  if (!p) { toast('Pilih nama tamu dulu.', 'warn'); return; }
+  if (!p) { toast('Pilih nama dulu.', 'warn'); return; }
   if (S.busy) return;
+
+  // sudah hadir: jangan ubah apa pun, cukup tampilkan nomornya
+  if (p.hadir) {
+    tampilkanHasil({
+      nama: p.nama, org: p.org, no: p.no ?? null, at: p.hadir_pada,
+      sudah: true, undangan: true
+    });
+    return;
+  }
+
   if (!online()) { toast('Butuh koneksi internet untuk mencatat kehadiran.', 'err', 5000); return; }
 
   const btn = $('btn-u-simpan');
   S.busy = true;
-  if (btn) { btn.disabled = true; btn.textContent = 'Memproses…'; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Menyimpan…'; }
   try {
-    const res = await api.confirmAttendance(p.token, {
+    const res = await api.attendInvited(p.kunci, {
       family: Math.min(5, Number($('u-family')?.value || 0)),
       meal: Boolean($('u-meal')?.checked),
       souvenir: Boolean($('u-souvenir')?.checked)
     });
     setNet(true);
 
-    if (res?.status === 'closed') { toast('Absensi sedang ditutup.', 'warn'); return; }
+    if (res?.status === 'closed') { tampilTutup(); return; }
     if (res?.ok === false) { toast(res.message || 'Gagal mencatat kehadiran.', 'err', 5000); return; }
 
+    if (typeof res.sisa_belum_hadir === 'number') {
+      S.sisa = res.sisa_belum_hadir;
+      if (S.pantau) renderPantau();
+    }
     tampilkanHasil({
-      nama: res.name || p.name,
+      nama: res.name || p.nama,
       org: res.org || p.org,
-      no: res.lottery_no ?? p.lottery_no,
+      no: res.lottery_no,
       at: res.attended_at,
       sudah: res.status === 'already',
+      undangan: true,
+      kunci: p.kunci,
       family: res.family_count ?? Number($('u-family')?.value || 0),
-      meal: Boolean(res.wants_meal ?? $('u-meal')?.checked),
-      souvenir: Boolean(res.wants_souvenir ?? $('u-souvenir')?.checked)
+      meal: Boolean(res.wants_meal),
+      souvenir: Boolean(res.wants_souvenir)
     });
-    // perbarui cache lokal supaya daftar langsung menandai "sudah hadir"
-    const i = S.all.findIndex((x) => String(x.id) === String(p.id));
-    if (i >= 0) {
-      S.all[i].attended = true;
-      S.all[i].attended_at = res.attended_at || new Date().toISOString();
-      store.set(K.data, S.all);
-    }
   } catch (err) {
     if (err?.code === 'offline') {
       setNet(false);
@@ -221,12 +260,12 @@ async function simpanUndangan() {
     S.busy = false;
     if (btn) {
       btn.disabled = false;
-      btn.textContent = S.terpilih?.attended ? 'Perbarui data kehadiran' : 'Tandai Hadir';
+      btn.textContent = '✅ Ya, saya hadir';
     }
   }
 }
 
-/* --------------------------------------------- tab 2: tamu tanpa undangan */
+/* ------------------------------------------------ 3. tamu tanpa undangan */
 async function simpanBaru(ev) {
   ev.preventDefault();
   if (S.busy) return;
@@ -251,7 +290,7 @@ async function simpanBaru(ev) {
     setNet(true);
 
     if (res?.ok === false) {
-      if (res.status === 'closed') { toast('Absensi sedang ditutup.', 'warn'); return; }
+      if (res.status === 'closed') { tampilTutup(); return; }
       toast(res.message || 'Pendaftaran gagal.', 'err', 5000);
       return;
     }
@@ -262,14 +301,13 @@ async function simpanBaru(ev) {
       at: res.attended_at,
       sudah: res.status === 'already',
       digabung: Boolean(res.merged),
+      undangan: false,
       family: res.family_count || family,
       meal: Boolean(res.wants_meal ?? meal),
       souvenir: Boolean(res.wants_souvenir ?? souvenir)
     });
     $('walkin-form').reset();
     $('b-family').value = '0';
-    // tamu baru/gabungan: segarkan daftar supaya nomor undian terlihat di tab 1
-    muatUlangDiam().catch(() => {});
   } catch (err) {
     if (err?.code === 'offline') {
       setNet(false);
@@ -280,97 +318,128 @@ async function simpanBaru(ev) {
   } finally {
     S.busy = false;
     btn.disabled = false;
-    btn.textContent = 'Daftarkan &amp; Tandai Hadir';
+    btn.textContent = 'Daftarkan & Tandai Hadir';
   }
 }
 
-/* ------------------------------------------------------------------ hasil */
-function tampilkanHasil({ nama, org, no, at, sudah, digabung, family, meal, souvenir }) {
-  const box = $('hasil');
+/* --------------------------------------------------------------- 4. hasil */
+function tampilkanHasil({ nama, org, no, at, sudah, digabung, undangan, kunci, family, meal, souvenir }) {
+  const box = $('view-hasil');
   if (!box) return;
   const ringkas = [
     family > 0 ? `👨‍👩‍👧 ${family} anggota keluarga` : '',
     meal ? '🍱 Kupon makan' : '',
     souvenir ? '🎁 Souvenir' : ''
-  ].filter(Boolean).join(' · ') || 'Tanpa kupon &amp; tanpa keluarga';
+  ].filter(Boolean).join(' · ') || 'Tanpa kupon & tanpa keluarga';
 
-  box.classList.remove('hidden');
   box.innerHTML = `
-    <div class="card card--ribbon stack center" style="margin-top:14px" role="status" aria-live="polite">
+    <div class="card card--ribbon stack center" role="status" aria-live="polite">
       <div class="participant-hero" style="padding:0;color:var(--ink)">
         <div class="participant-hero__orn" aria-hidden="true">${sudah ? '✅' : '🎉'}</div>
-        <h2 style="color:var(--cocoa-800);margin:0">${sudah ? 'Sudah tercatat hadir' : 'Kehadiran tercatat'}</h2>
+        <h2 style="color:var(--cocoa-800);margin:0">
+          ${sudah ? 'Sudah tercatat hadir' : 'Kehadiran tercatat'}
+        </h2>
         <p style="color:var(--ink-soft);margin:4px 0 0">${esc(nama)}${org ? ' · ' + esc(org) : ''}</p>
       </div>
-      <div class="number-plate" style="align-self:center">
+      ${no ? `<div class="number-plate" style="align-self:center">
         <div class="number number--hero">${esc(pad3(no))}</div>
-      </div>
-      <p class="small" style="margin:0;color:var(--ink-soft)">Sebutkan / tunjukkan nomor ini ke tamu.${
-        at ? ` Tercatat pukul ${esc(fmtTime(at))}.` : ''}</p>
+      </div>` : ''}
+      <p class="small" style="margin:0;color:var(--ink-soft)">${
+        no ? 'Tunjukkan nomor ini ke panitia bila diminta.' : 'Silakan hubungi panitia registrasi.'
+      }${at ? ` Tercatat pukul ${esc(fmtTime(at))}.` : ''}</p>
       <p class="small" style="margin:0;color:var(--ink-soft)">${ringkas}</p>
       ${digabung ? '<div class="notice notice--info"><span class="notice__icon" aria-hidden="true">🔗</span>'
         + '<div>Data digabung dengan undangan yang sudah terdaftar.</div></div>' : ''}
       <button class="btn btn--outline btn--block" id="btn-hasil-lagi" type="button">Tamu berikutnya</button>
+      ${undangan && kunci && !sudah
+        ? '<button class="btn btn--ghost btn--sm" id="btn-batal" type="button" style="margin-top:2px">'
+          + 'Salah pilih? Batalkan pencatatan ini</button>' : ''}
     </div>`;
+
+  show('hasil');
   box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  $('btn-hasil-lagi')?.addEventListener('click', () => {
-    box.classList.add('hidden');
-    box.innerHTML = '';
-    $('cari-nama').value = '';
-    filterDaftar();
-    setTab('undangan');
-  });
+
+  $('btn-hasil-lagi')?.addEventListener('click', ulang);
+  $('btn-batal')?.addEventListener('click', () => batalkan(kunci));
 }
 
-/* ------------------------------------------------------------- muat ulang */
-async function muatUlangDiam() {
-  if (!S.pin) return false;
+async function batalkan(kunci) {
+  if (!online()) { toast('Butuh koneksi internet.', 'err'); return; }
   try {
-    const res = await api.staffData(S.pin);
-    if (!res?.ok) return false;
-    S.all = (res.participants || []).slice().sort((a, b) => a.lottery_no - b.lottery_no);
-    S.open = Boolean(res.attendance_open);
-    setEventName(res.event_name);
-    store.set(K.data, S.all);
-    store.set(K.at, new Date().toISOString());
-    filterDaftar();
-    return true;
-  } catch {
-    return false;
+    const res = await api.attendUndo(kunci);
+    if (res?.ok) {
+      toast('Pencatatan dibatalkan. Silakan pilih nama yang benar.', 'ok', 5000);
+      ulang();
+    } else {
+      toast(res?.message || 'Tidak dapat dibatalkan.', 'err', 5000);
+    }
+  } catch (err) {
+    toast(err?.message || 'Tidak dapat dibatalkan.', 'err', 5000);
   }
 }
 
-/* ------------------------------------------------------------------- boot */
+function tampilTutup() {
+  const box = $('view-hasil');
+  if (!box) return;
+  const terakhir = S.sisa != null
+    ? `<p class="small center" style="color:var(--ink-soft);margin:0">
+         Undangan yang belum tercatat hadir: <strong>${S.sisa}</strong></p>` : '';
+  box.innerHTML = `
+    <div class="card stack center">
+      <div class="participant-hero" style="padding:0;color:var(--ink)">
+        <div class="participant-hero__orn" aria-hidden="true">🔒</div>
+        <h2 style="color:var(--cocoa-800);margin:0">Absensi sedang ditutup</h2>
+        <p style="color:var(--ink-soft);margin:4px 0 0">Silakan hubungi panitia registrasi.</p>
+      </div>
+      ${terakhir}
+    </div>`;
+  show('hasil');
+}
+
+/* ----------------------------------------------------------- 5. pemantauan */
+/** Panitia bisa membuka ?pantau=1 untuk melihat sisa undangan yang belum hadir. */
+function renderPantau() {
+  const box = $('info-diundang');
+  if (!box || S.sisa == null) return;
+  box.innerHTML = `<span class="notice__icon" aria-hidden="true">📋</span>
+    <div><strong>Mode pemantauan panitia.</strong>
+    <div class="small">Undangan yang belum tercatat hadir: <strong>${S.sisa}</strong>.
+    Angka ini harus turun satu tiap tamu. Turun dua = ada data dobel;
+    melompat dua = ada tamu salah memilih nama.</div></div>`;
+}
+
+/* -------------------------------------------------------------- 6. start */
 function bind() {
-  $('pin-form')?.addEventListener('submit', (e) => {
-    e.preventDefault();
-    const pin = $('pin-input').value.trim();
-    if (pin.length < 4) { toast('PIN minimal 4 karakter.', 'err'); return; }
-    masukDenganPin(pin);
+  $('cari-nama')?.addEventListener('input', (e) => {
+    clearTimeout(S.timerCari);
+    const v = e.target.value;
+    S.timerCari = setTimeout(() => cariNama(v), JEDA_CARI);
   });
-  $('btn-ganti-pin')?.addEventListener('click', () => {
-    store.del(K.pin);
-    S.masuk = false;
-    S.pin = '';
-    show('gate');
-    $('pin-input').value = '';
-    $('pin-input')?.focus();
+  $('cari-nama')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      clearTimeout(S.timerCari);
+      cariNama(e.target.value);
+    }
   });
-  $('btn-muat-ulang')?.addEventListener('click', async (e) => {
-    const btn = e.currentTarget;
-    btn.disabled = true;
-    const ok = await muatUlangDiam();
-    btn.disabled = false;
-    toast(ok ? 'Daftar undangan diperbarui.' : 'Gagal memuat. Periksa koneksi.', ok ? 'ok' : 'err', 3000);
+  $('daftar-nama')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-i]');
+    if (!btn) return;
+    const p = S.hasil[Number(btn.dataset.i)];
+    if (p) bukaKonfirmasi(p);
   });
-  $('tab-undangan')?.addEventListener('click', () => setTab('undangan'));
-  $('tab-baru')?.addEventListener('click', () => setTab('baru'));
-  $('cari-nama')?.addEventListener('input', () => filterDaftar());
-  $('pilih-nama')?.addEventListener('change', (e) => pilihTamu(e.target.value));
+  $('btn-tanpa-undangan')?.addEventListener('click', () => {
+    show('baru');
+    setTimeout(() => $('b-name')?.focus(), 60);
+  });
+  $('btn-b-kembali')?.addEventListener('click', () => { show('cari'); $('cari-nama')?.focus(); });
+  $('btn-bukan-saya')?.addEventListener('click', () => { show('cari'); $('cari-nama')?.focus(); });
   $('btn-u-simpan')?.addEventListener('click', simpanUndangan);
   $('walkin-form')?.addEventListener('submit', simpanBaru);
-  window.addEventListener('online', () => { setNet(true); muatUlangDiam().catch(() => {}); });
+  window.addEventListener('online', () => { setNet(true); if ($('cari-nama')?.value) cariNama($('cari-nama').value); });
   window.addEventListener('offline', () => setNet(false));
+  // aktifkan timer kios pada sentuhan pertama
+  document.addEventListener('pointerdown', () => jadwalkanKios('cari'), { once: true });
 }
 
 async function boot() {
@@ -379,41 +448,33 @@ async function boot() {
     $('error-message').textContent = 'config.js belum diisi (SUPABASE_URL / SUPABASE_ANON_KEY kosong).';
     return;
   }
+
+  const q = new URLSearchParams(location.search);
+  S.pantau = q.get('pantau') === '1';
+  S.kios = S.pantau || q.get('kios') === '1';
+  S.undianTampil = S.pantau || q.get('undian') === '1';
+  if (S.kios) document.body.classList.add('is-kios');
+  if (S.undianTampil) {
+    const sub = $('topbar-sub');
+    if (sub) sub.textContent = 'Absensi Kehadiran · mode panitia';
+  }
+
   setNet(online());
   setEventName('Acara Natal');
 
-  // sudah pernah masuk di HP ini? pakai cache dulu supaya tetap jalan saat sinyal lemah
-  const pin = store.get(K.pin, '');
-  const cache = store.get(K.data, []);
-  if (Array.isArray(cache) && cache.length && pin) {
-    S.pin = pin;
-    S.all = cache.slice().sort((a, b) => a.lottery_no - b.lottery_no);
-    masukTanpaVerifikasi();
-    muatUlangDiam().catch(() => {});
-    return;
+  try {
+    const info = await api.eventInfo();
+    setEventName(info?.event_name);
+    S.open = Boolean(info?.attendance_open);
+  } catch { /* tetap lanjut: lookup_invited akan memberi tahu bila ditutup */ }
+
+  show('cari');
+  if (!online()) {
+    const st = $('status-cari');
+    if (st) st.textContent = 'Tidak ada koneksi internet.';
   }
-  if (pin) {
-    const ok = await masukDenganPin(pin, { diam: true });
-    if (!ok) { show('gate'); return; }
-    return;
-  }
-  show('gate');
-  setTimeout(() => $('pin-input')?.focus(), 80);
+  if (S.kios) setTimeout(() => $('cari-nama')?.focus(), 120);
 }
 
-function masukTanpaVerifikasi() {
-  S.masuk = true;
-  show('absen');
-  bukaAbsen();
-}
-
-/* ------------------------------------------------------------------ start */
 bind();
 boot();
-
-// petunjuk: halaman ini bisa dibuka dari QR umum (mode=absen) atau langsung
-if (new URLSearchParams(location.search).get('mode')) {
-  const n = $('gate-note');
-  if (n) n.textContent = 'Halaman petugas meja registrasi. Masukkan PIN petugas sekali saja — '
-    + 'PIN diingat di HP ini.';
-}

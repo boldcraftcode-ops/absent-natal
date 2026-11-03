@@ -597,6 +597,231 @@ begin
   );
 end $$;
 
+-- ---------------------------------------------------------------------------
+-- 4c. ABSENSI MANDIRI TAMU (tanpa PIN)
+--     Dipakai halaman absen.html ketika tamu membawa UNDANGAN FISIK (QR) atau
+--     TIDAK membawa undangan sama sekali.
+--
+--     Kenapa tanpa PIN: yang memegang HP di meja registrasi adalah TAMU itu
+--     sendiri, jadi halaman ini tidak boleh memuat token undangan orang lain
+--     (itu sebabnya ia TIDAK memakai staff_data).
+--     Pemeriksaan data dobel dilakukan MANUAL oleh panitia: setiap panggilan
+--     mengembalikan `sisa_belum_hadir` (jumlah undangan yang belum tercatat),
+--     sehingga keanehan langsung terlihat (turun 2 = ada yang dobel, atau
+--     melompat 2 = ada tamu yang salah memilih nama).
+-- ---------------------------------------------------------------------------
+
+-- Pencarian nama undangan untuk layar tamu. HANYA nama lengkap + asal + status
+-- hadir. Nomor undian hanya ikut bila p_tampil_nomor = true (dipakai panitia
+-- yang mendampingi; lihat absen.html?undian=1). TIDAK pernah mengembalikan
+-- token, nomor HP, atau data keluarga.
+create or replace function public.lookup_invited(p_q text, p_limit integer default 20,
+                                                 p_tampil_nomor boolean default false)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+declare
+  v_q      text := public._norm_name(p_q);
+  v_lim    integer := least(greatest(coalesce(p_limit, 20), 1), 50);
+  v_rows   jsonb;
+  v_belum  integer;
+  v_hadir  integer;
+begin
+  if not coalesce(public._attendance_open(), false) then
+    return jsonb_build_object('ok', false, 'status', 'closed',
+      'message', 'Absensi sedang ditutup. Silakan hubungi petugas registrasi.');
+  end if;
+
+  -- ringkasan selalu ikut supaya panitia bisa memantau keanehan
+  select coalesce(count(*) filter (where attended), 0)::int,
+         coalesce(count(*) filter (where not attended), 0)::int
+    into v_hadir, v_belum
+    from public.participants
+   where invited;
+
+  if v_q is null or length(v_q) < 2 then
+    return jsonb_build_object('ok', true, 'status', 'ok', 'rows', '[]'::jsonb,
+      'terlalu_pendek', true,
+      'sisa_belum_hadir', v_belum, 'hadir_undangan', v_hadir,
+      'attendance_open', true, 'event_name', public._event_name());
+  end if;
+
+  -- Nama selalu ditampilkan LENGKAP: banyak tamu berbagi nama depan yang sama
+  -- (Maria, Yohanes, Ruth), jadi nama depan saja membuat tamu salah pilih.
+  -- Nomor undian adalah satu-satunya yang disembunyikan dari layar tamu.
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'kunci', substr(md5(p.id::text || 'natal'), 1, 10),
+           'nama', p.name,
+           'org', p.org,
+           'hadir', p.attended,
+           'hadir_pada', p.attended_at,
+           'no', case when coalesce(p_tampil_nomor, false) then p.lottery_no end)
+         order by p.attended asc, p.name), '[]'::jsonb)
+    into v_rows
+    from (
+      select id, name, org, attended, attended_at, lottery_no
+        from public.participants
+       where name_norm like '%' || v_q || '%'
+          or public._norm_name(org) like '%' || v_q || '%'
+       order by attended asc, name
+       limit v_lim
+    ) p;
+
+  return jsonb_build_object(
+    'ok', true, 'status', 'ok', 'rows', v_rows, 'terlalu_pendek', false,
+    'sisa_belum_hadir', v_belum, 'hadir_undangan', v_hadir,
+    'attendance_open', true, 'event_name', public._event_name()
+  );
+end $$;
+
+-- Tamu menghadirkan dirinya sendiri: tanpa PIN, tanpa token, TANPA membuat
+-- nomor baru. Hanya bisa untuk peserta yang `invited = true` (yang tidak
+-- diundang memakai walkin_register lewat tab "Tanpa undangan").
+create or replace function public.attend_invited(
+  p_key      text,
+  p_family   integer default 0,
+  p_meal     boolean default false,
+  p_souvenir boolean default false
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_key text := left(btrim(coalesce(p_key, '')), 40);
+  v_p   public.participants;
+  v_was boolean;
+  v_sisa integer;
+begin
+  if length(v_key) < 6 then
+    return jsonb_build_object('ok', false, 'status', 'invalid',
+      'message', 'Silakan cari dan pilih nama Anda dari daftar undangan.');
+  end if;
+
+  select * into v_p from public.participants
+   where substr(md5(id::text || 'natal'), 1, 10) = v_key;
+
+  if not found then
+    return jsonb_build_object('ok', false, 'status', 'not_found',
+      'message', 'Nama tidak ditemukan. Muat ulang daftar lalu cari kembali.');
+  end if;
+
+  if not v_p.invited then
+    return jsonb_build_object('ok', false, 'status', 'not_invited',
+      'message', 'Nama ini bukan tamu undangan. Silakan pakai tab "Tanpa undangan".');
+  end if;
+
+  if not coalesce(public._attendance_open(), false) then
+    return jsonb_build_object('ok', false, 'status', 'closed',
+      'message', 'Absensi sedang ditutup. Silakan hubungi petugas registrasi.',
+      'name', v_p.name, 'lottery_no', v_p.lottery_no);
+  end if;
+
+  v_was := v_p.attended;
+
+  if not v_was then
+    update public.participants
+       set attended   = true,
+           attended_at = now(),
+           wants_meal  = wants_meal or coalesce(p_meal, false),
+           wants_souvenir = wants_souvenir or coalesce(p_souvenir, false),
+           source      = 'scan_sendiri'
+     where id = v_p.id
+    returning * into v_p;
+  end if;
+
+  -- jumlah anggota keluarga (0-5); angka tidak pernah turun
+  perform public._set_family(v_p.id, coalesce(p_family, 0));
+  select * into v_p from public.participants where id = v_p.id;
+
+  select coalesce(count(*), 0)::int into v_sisa
+    from public.participants where invited and not attended;
+
+  return jsonb_build_object(
+    'ok', true,
+    'status', case when v_was then 'already' else 'ok' end,
+    'name', v_p.name,
+    'org', v_p.org,
+    'lottery_no', v_p.lottery_no,
+    'attended_at', v_p.attended_at,
+    'family_count', v_p.family_count,
+    'wants_meal', v_p.wants_meal,
+    'wants_souvenir', v_p.wants_souvenir,
+    'invited', true,
+    'sisa_belum_hadir', v_sisa,
+    'attendance_open', true,
+    'event_name', public._event_name(),
+    'message', case when v_was then 'Anda sudah tercatat hadir sebelumnya.'
+                    else 'Kehadiran Anda berhasil dicatat.' end
+  );
+end $$;
+
+-- Batalkan salah ketuk di layar tamu (hanya dalam 3 menit terakhir).
+-- Panitia juga bisa memakai tombol Batal di panel admin.
+create or replace function public.attend_undo(p_key text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_key text := left(btrim(coalesce(p_key, '')), 40);
+  v_p   public.participants;
+begin
+  select * into v_p from public.participants
+   where substr(md5(id::text || 'natal'), 1, 10) = v_key;
+
+  if not found then
+    return jsonb_build_object('ok', false, 'status', 'not_found',
+      'message', 'Data tidak ditemukan.');
+  end if;
+
+  if not v_p.attended or v_p.attended_at is null
+     or v_p.attended_at < now() - interval '3 minutes' then
+    return jsonb_build_object('ok', false, 'status', 'too_late',
+      'message', 'Sudah lebih dari 3 menit. Minta panitia membatalkan lewat panel admin.');
+  end if;
+
+  update public.participants
+     set attended = false, attended_at = null
+   where id = v_p.id;
+
+  return jsonb_build_object('ok', true, 'status', 'ok', 'name', v_p.name,
+    'message', 'Pencatatan dibatalkan. Silakan pilih nama yang benar.');
+end $$;
+
+-- Aktivitas terakhir di meja registrasi (untuk pemeriksaan manual panitia).
+-- Hanya nama + waktu + sumber; tanpa nomor undian, token, atau nomor HP.
+create or replace function public.recent_attendance(p_n integer default 8)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+declare
+  v_n    integer := least(greatest(coalesce(p_n, 8), 1), 20);
+  v_rows jsonb;
+begin
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'nama', name, 'waktu', attended_at, 'sumber', source, 'undangan', invited)
+         order by attended_at desc), '[]'::jsonb)
+    into v_rows
+    from (
+      select name, attended_at, source, invited
+        from public.participants
+       where attended and attended_at is not null
+       order by attended_at desc
+       limit v_n
+    ) x;
+
+  return jsonb_build_object('ok', true, 'rows', v_rows);
+end $$;
+
 create or replace function public.confirm_attendance(
   p_token        text,
   p_family       integer default 0,
@@ -1453,6 +1678,7 @@ begin
   -- 3. fungsi wajib (yang dipanggil aplikasi)
   foreach v_fungsi in array array[
     'event_info', 'get_invite', 'confirm_attendance', 'walkin_register',
+    'lookup_invited', 'attend_invited', 'attend_undo', 'recent_attendance',
     'staff_data', 'staff_claim_numbers', 'staff_sync',
     'admin_check', 'admin_get_all', 'admin_import', 'admin_set_setting',
     'admin_change_pin', 'admin_toggle', 'admin_update', 'admin_delete', 'admin_add',
@@ -1523,6 +1749,10 @@ grant execute on function public.get_invite(text)                               
 grant execute on function public.confirm_attendance(text, integer, boolean, boolean, jsonb)                       to anon, authenticated;
 grant execute on function public.walkin_register(text, text, text, integer, boolean, boolean, jsonb)
   to anon, authenticated;
+grant execute on function public.lookup_invited(text, integer, boolean)       to anon, authenticated;
+grant execute on function public.attend_invited(text, integer, boolean, boolean) to anon, authenticated;
+grant execute on function public.attend_undo(text)                             to anon, authenticated;
+grant execute on function public.recent_attendance(integer)                    to anon, authenticated;
 
 -- Fungsi PETUGAS
 grant execute on function public.schema_check()                                 to anon, authenticated;

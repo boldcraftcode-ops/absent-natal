@@ -124,7 +124,7 @@
           Tekan tombol di atas saat Anda sudah berada di lokasi acara.
         </p>
         <p class="small center" style="margin:0">
-          <a href="./absen.html" style="color:var(--cran-800)">Petugas? Buka absensi meja registrasi →</a>
+          <a href="./absen.html" style="color:var(--cran-800)">Tidak membawa undangan fisik? Absen di meja registrasi →</a>
         </p>
       </div>
     </section>
@@ -173,56 +173,6 @@
         </div>
 
         <button class="btn btn--outline btn--block" id="btn-reload">Selesai</button>
-      </div>
-    </section>
-
-    <!-- ============ layar 5b: absensi petugas (2 tab) ============ -->
-    <section id="view-petugas" class="hidden">
-      <div class="card card--ribbon stack">
-        <div class="participant-hero" style="padding-bottom:0">
-          <div class="participant-hero__orn" aria-hidden="true">🗒️</div>
-          <h1>Absensi Tamu</h1>
-          <p style="color:var(--ink-soft)">Pilih jenis tamu, lalu catat kehadirannya.</p>
-        </div>
-
-        <div class="tabs" role="tablist" aria-label="Jenis tamu">
-          <button class="tab" role="tab" id="p-tab-undangan" aria-controls="p-panel-undangan"
-                  aria-selected="true">🎫 Tamu undangan</button>
-          <button class="tab" role="tab" id="p-tab-baru" aria-controls="p-panel-baru"
-                  aria-selected="false">➕ Tanpa undangan</button>
-        </div>
-
-        <!-- tab 1: pilih nama dari rekap -->
-        <div id="p-panel-undangan" role="tabpanel" aria-labelledby="p-tab-undangan" class="stack">
-          <label class="field" style="margin:0">
-            <span class="label">Cari nama / asal / nomor undian</span>
-            <input class="input" id="p-cari" type="search" autocomplete="off" spellcheck="false"
-                   placeholder="Ketik nama tamu…">
-          </label>
-          <label class="field" style="margin:0">
-            <span class="label">Nama sesuai rekap hadir</span>
-            <select class="select" id="p-pilih">
-              <option value="">— Pilih nama tamu —</option>
-            </select>
-            <span class="hint" id="p-info">Memuat daftar undangan…</span>
-          </label>
-          <div id="p-kartu" class="hidden"></div>
-          <div class="row" style="gap:8px">
-            <button class="btn btn--red btn--lg grow" id="p-btn-hadir" type="button" disabled>Hadirkan</button>
-            <button class="btn btn--outline btn--lg" id="p-btn-tutup" type="button">Tutup</button>
-          </div>
-        </div>
-
-        <!-- tab 2: tamu baru, pakai form tanpa undangan yang sudah ada -->
-        <div id="p-panel-baru" role="tabpanel" aria-labelledby="p-tab-baru" class="hidden">
-          <div class="notice notice--info">
-            <span class="notice__icon" aria-hidden="true">➕</span>
-            <div>Isi nama &amp; nomor HP di bawah — nomor undian baru dibuat otomatis.</div>
-          </div>
-          <button class="btn btn--red btn--xl btn--block" id="p-btn-form" type="button">
-            Buka form tamu tanpa undangan
-          </button>
-        </div>
       </div>
     </section>
 

@@ -1241,3 +1241,63 @@ body.screen .wrap { position: relative; z-index: 5; }
 @media print {
   .snowfall { display: none !important; }
 }
+
+/* ==========================================================================
+   Halaman ABSENSI TAMU (absen.html)
+   Dirancang untuk HP yang dipegang TAMU: target sentuh besar, teks jelas,
+   daftar nama seperti kartu pilihan (bukan dropdown kecil).
+   ========================================================================== */
+
+.input--xl {
+  min-height: 58px;
+  font-size: 1.18rem;
+  font-weight: 700;
+  letter-spacing: .01em;
+}
+
+/* daftar nama hasil pencarian */
+.pilih-nama { display: grid; gap: 8px; }
+.pilih-nama:empty { display: none; }
+
+.pilih-nama__item {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  width: 100%; min-height: 60px; padding: 11px 13px;
+  font: inherit; text-align: left; cursor: pointer;
+  background: #FFFEFB;
+  border: 1.5px solid var(--kraft-300);
+  border-radius: 14px;
+  color: var(--ink);
+  box-shadow: 0 1px 0 rgba(53, 32, 22, .04);
+  transition: border-color .12s ease, box-shadow .12s ease, transform .08s ease;
+}
+.pilih-nama__item:hover { border-color: var(--olive-500); }
+.pilih-nama__item:active { transform: scale(.985); }
+.pilih-nama__item:focus-visible {
+  outline: none; border-color: var(--olive-500);
+  box-shadow: 0 0 0 3px rgba(90, 106, 50, .22);
+}
+.pilih-nama__teks { display: flex; flex-direction: column; min-width: 0; }
+.pilih-nama__teks strong {
+  font-size: 1.02rem; line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.pilih-nama__teks .small { color: var(--ink-soft); font-size: .78rem; margin-top: 2px; }
+.pilih-nama__kanan {
+  display: flex; flex-direction: column; align-items: flex-end; gap: 4px;
+  flex: none;
+}
+.pilih-nama__item.is-hadir { background: rgba(69, 80, 38, .06); border-color: rgba(69, 80, 38, .28); }
+.pilih-nama__item.is-hadir strong { color: var(--olive-700); }
+
+/* mode kios: layar lebih lapang, tanpa dekorasi yang mengganggu fokus */
+body.is-kios .snow { opacity: .35; }
+body.is-kios .wrap--narrow { max-width: 560px; }
+body.is-kios .input--xl { min-height: 64px; font-size: 1.25rem; }
+body.is-kios .pilih-nama__item { min-height: 66px; }
+body.is-kios .pilih-nama__teks strong { font-size: 1.1rem; }
+
+/* di layar sempit, kolom kanan tidak boleh mendorong nama */
+@media (max-width: 380px) {
+  .pilih-nama__item { flex-wrap: wrap; }
+  .pilih-nama__kanan { flex-direction: row; align-items: center; width: 100%; justify-content: flex-end; }
+}

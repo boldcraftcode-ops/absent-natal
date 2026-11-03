@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Absensi Tamu — Acara Natal</title>
   <meta name="theme-color" content="#352016">
-  <meta name="description" content="Halaman petugas registrasi: absensi tamu undangan dan tamu tanpa undangan.">
+  <meta name="description" content="Halaman tamu: pilih nama Anda dari daftar undangan, atau daftar sebagai tamu tanpa undangan bila tidak membawa undangan.">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon-192.png" sizes="192x192">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
@@ -22,7 +22,7 @@
     </div>
     <div class="topbar__title">
       <strong id="event-name">Acara Natal</strong>
-      <span>Absensi Tamu · Meja Registrasi</span>
+      <span id="topbar-sub">Absensi Kehadiran</span>
     </div>
     <div class="topbar__actions">
       <span class="badge badge--online" id="net-badge" title="Status koneksi">Online</span>
@@ -31,171 +31,170 @@
 
   <main class="wrap wrap--narrow stack" id="main">
 
-    <!-- ================= layar 1: gerbang PIN petugas ================= -->
-    <section id="view-gate" class="card card--ribbon stack hidden">
-      <div class="participant-hero" style="padding:0">
-        <div class="participant-hero__orn" aria-hidden="true">🔑</div>
-        <h1>Masuk Petugas</h1>
-        <p style="color:var(--ink-soft)" id="gate-note">
-          Halaman ini untuk petugas meja registrasi. Masukkan PIN petugas sekali saja —
-          PIN diingat di HP ini supaya tidak perlu mengetik ulang.
-        </p>
+    <!-- ================= layar 1: cari nama ================= -->
+    <section id="view-cari" class="stack hidden">
+
+      <div class="card card--ribbon center" style="padding:18px 16px">
+        <div class="participant-hero" style="padding:0">
+          <div class="participant-hero__orn" aria-hidden="true">🎄</div>
+          <h1 style="margin:6px 0 4px">Selamat datang!</h1>
+          <p style="color:var(--ink-soft);margin:0">
+            Cari dan pilih nama Anda untuk mencatat kehadiran.
+            Nomor undian Anda akan tampil setelah itu.
+          </p>
+        </div>
       </div>
-      <div id="gate-error" class="notice notice--danger hidden">
-        <span class="notice__icon" aria-hidden="true">⚠️</span>
-        <div id="gate-error-text">PIN tidak dapat diperiksa.</div>
+
+      <div class="notice notice--info" id="info-diundang">
+        <span class="notice__icon" aria-hidden="true">🎫</span>
+        <div>
+          <strong>Anda menerima undangan Natal?</strong>
+          <div class="small">Cari nama Anda di bawah ini — jangan daftar ulang, supaya nomor undian Anda tetap satu.</div>
+        </div>
       </div>
-      <form id="pin-form" novalidate>
-        <label class="field">
-          <span class="label">PIN petugas</span>
-          <input class="input" id="pin-input" type="password" inputmode="text"
-                 autocomplete="current-password" placeholder="••••••" minlength="4" required>
-          <span class="hint">PIN yang sama dengan halaman petugas/admin.</span>
+
+      <div class="card card--flat stack" style="padding:16px">
+        <label class="field" style="margin:0">
+          <span class="label">Nama Anda</span>
+          <input class="input input--xl" id="cari-nama" type="search" autocomplete="off" spellcheck="false"
+                 placeholder="Tulis nama depan Anda…" enterkeyhint="search" aria-describedby="cari-hint">
+          <span class="hint" id="cari-hint">Contoh: Maria — cukup beberapa huruf saja.</span>
         </label>
-        <button class="btn btn--red btn--xl btn--block" type="submit">Masuk &amp; Muat Daftar Undangan</button>
-      </form>
+
+        <div id="status-cari" class="small center" style="color:var(--ink-soft);min-height:18px">—</div>
+
+        <div id="daftar-nama" class="pilih-nama" role="listbox" aria-label="Daftar nama undangan"></div>
+
+        <div id="cari-kosong" class="hidden">
+          <div class="notice notice--warn">
+            <span class="notice__icon" aria-hidden="true">🤔</span>
+            <div>
+              <strong>Nama Anda tidak ada di daftar?</strong>
+              <div class="small">Coba kata kunci lain (nama depan saja, atau asal wilayah/instansi).
+                Bila tetap tidak ada, berarti Anda tamu <strong>tanpa undangan</strong> — silakan daftar di bawah.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="row" style="gap:8px">
+          <button class="btn btn--outline btn--block" id="btn-tanpa-undangan" type="button">
+            ➕ Saya tidak menerima undangan
+          </button>
+        </div>
+      </div>
+
       <p class="small center" style="color:var(--ink-soft);margin:0">
-        <a href="./index.html" style="color:var(--cran-800)">← Halaman peserta</a>
+        Sudah punya undangan fisik? Pindai QR di undangan dengan kamera HP —
+        halaman itu lebih cepat dan langsung menampilkan nomor undian Anda.
       </p>
     </section>
 
-    <!-- ================= layar 2: absensi (2 tab) ================= -->
-    <section id="view-absen" class="stack hidden">
+    <!-- ================= layar 2: konfirmasi nama ================= -->
+    <section id="view-konfirmasi" class="stack hidden">
+      <div class="card card--ribbon stack" style="padding:18px 16px">
+        <p class="small center" style="color:var(--ink-soft);margin:0">Periksa baik-baik —</p>
+        <h1 class="center" style="margin:0 0 2px">Betul ini Anda?</h1>
+        <div class="center" style="font-size:1.55rem;font-weight:800;line-height:1.25;color:var(--cocoa-800)"
+             id="konf-nama">—</div>
+        <p class="center small" style="margin:6px 0 0;color:var(--ink-soft)" id="konf-org">—</p>
 
-      <div class="notice notice--info">
-        <span class="notice__icon" aria-hidden="true">📱</span>
-        <div>
-          <strong>Pindai QR dengan kamera bawaan HP.</strong>
-          QR undangan tamu membuka halaman tamu; halaman ini dipakai untuk mencatat kehadiran
-          tamu <strong>undangan</strong> maupun <strong>tanpa undangan</strong>.
-        </div>
-      </div>
+        <div id="konf-status" class="hidden"></div>
 
-      <div class="card card--flat stack" style="padding:14px">
-        <div class="row row--between" style="gap:8px">
-          <span class="small" id="daftar-info" style="color:var(--ink-soft)">—</span>
-          <button class="btn btn--outline btn--sm" id="btn-muat-ulang" type="button">⟳ Muat ulang</button>
-        </div>
-        <div class="row" style="gap:8px;justify-content:space-between">
-          <button class="btn btn--outline btn--sm" id="btn-ganti-pin" type="button">🔑 Ganti PIN</button>
-          <span class="small" style="color:var(--ink-soft)">Nomor undian tidak pernah berubah.</span>
-        </div>
-      </div>
+        <label class="field" style="margin:8px 0 0">
+          <span class="label">Jumlah anggota keluarga yang ikut</span>
+          <select class="select" id="u-family">
+            <option value="0">Tidak membawa keluarga</option>
+            <option value="1">1 orang</option>
+            <option value="2">2 orang</option>
+            <option value="3">3 orang</option>
+            <option value="4">4 orang</option>
+            <option value="5">5 orang (maksimal)</option>
+          </select>
+          <span class="hint">Cukup jumlahnya — dipakai menghitung kupon makan.</span>
+        </label>
 
-      <!-- tab -->
-      <div class="tabs" role="tablist" aria-label="Jenis tamu">
-        <button class="tab" role="tab" id="tab-undangan" aria-controls="panel-undangan"
-                aria-selected="true">🎫 Tamu undangan</button>
-        <button class="tab" role="tab" id="tab-baru" aria-controls="panel-baru"
-                aria-selected="false">➕ Tanpa undangan</button>
-      </div>
-
-      <!-- ---------------- tab 1: tamu undangan (dropdown) ---------------- -->
-      <section id="panel-undangan" role="tabpanel" aria-labelledby="tab-undangan" class="stack">
-        <div class="card card--flat stack" style="padding:14px">
-          <label class="field" style="margin:0">
-            <span class="label">Cari nama / asal / nomor undian</span>
-            <input class="input" id="cari-nama" type="search" autocomplete="off" spellcheck="false"
-                   placeholder="Ketik nama tamu…">
+        <div class="check-card">
+          <label class="check-row">
+            <input type="checkbox" id="u-meal">
+            <span class="check-row__box" aria-hidden="true">🍱</span>
+            <span class="check-row__text"><strong>Kupon Makan</strong><span>Termasuk anggota keluarga</span></span>
           </label>
-          <label class="field" style="margin:0">
-            <span class="label">Nama sesuai rekap hadir</span>
-            <select class="select" id="pilih-nama">
-              <option value="">— Pilih nama tamu —</option>
-            </select>
-            <span class="hint">Memilih nama memakai nomor undian yang sudah terbit (tidak membuat nomor baru).</span>
+          <label class="check-row">
+            <input type="checkbox" id="u-souvenir">
+            <span class="check-row__box" aria-hidden="true">🎁</span>
+            <span class="check-row__text"><strong>Souvenir</strong><span>Satu per peserta hadir</span></span>
           </label>
-          <div id="kartu-undangan" class="hidden"></div>
-
-          <div id="u-extras" class="stack">
-            <label class="field" style="margin:0">
-              <span class="label">Jumlah anggota keluarga yang ikut</span>
-              <select class="select" id="u-family">
-                <option value="0">Tidak membawa keluarga</option>
-                <option value="1">1 orang</option>
-                <option value="2">2 orang</option>
-                <option value="3">3 orang</option>
-                <option value="4">4 orang</option>
-                <option value="5">5 orang (maksimal)</option>
-              </select>
-            </label>
-            <div class="check-card">
-              <label class="check-row">
-                <input type="checkbox" id="u-meal">
-                <span class="check-row__box" aria-hidden="true">🍱</span>
-                <span class="check-row__text"><strong>Kupon Makan</strong><span>Termasuk anggota keluarga</span></span>
-              </label>
-              <label class="check-row">
-                <input type="checkbox" id="u-souvenir">
-                <span class="check-row__box" aria-hidden="true">🎁</span>
-                <span class="check-row__text"><strong>Souvenir</strong><span>Satu per peserta hadir</span></span>
-              </label>
-            </div>
-          </div>
-
-          <button class="btn btn--red btn--xl btn--block" id="btn-u-simpan" type="button" disabled>
-            Tandai Hadir
-          </button>
         </div>
-      </section>
 
-      <!-- ---------------- tab 2: tamu tanpa undangan ---------------- -->
-      <section id="panel-baru" role="tabpanel" aria-labelledby="tab-baru" class="hidden">
-        <div class="card card--flat stack" style="padding:14px">
-          <h2 class="card__title">Tamu tanpa undangan</h2>
-          <p class="card__sub">Nomor undian baru diambil otomatis (501, 502, …).</p>
-          <form id="walkin-form" novalidate class="stack">
-            <label class="field">
-              <span class="label">Nama lengkap <span style="color:var(--red-600)">*</span></span>
-              <input class="input" id="b-name" autocomplete="name" required maxlength="80"
-                     placeholder="Contoh: Rudi Hartono">
-            </label>
-            <label class="field">
-              <span class="label">No. HP / WhatsApp <span style="color:var(--red-600)">*</span></span>
-              <input class="input" id="b-phone" type="tel" inputmode="tel" autocomplete="tel"
-                     required maxlength="20" placeholder="0812xxxxxxx">
-              <span class="hint">Satu nomor HP = satu peserta. Dipakai mencegah data dobel.</span>
-            </label>
-            <label class="field">
-              <span class="label">Asal / instansi / divisi / wilayah</span>
-              <input class="input" id="b-org" autocomplete="organization" maxlength="80"
-                     placeholder="Contoh: Wilayah Medan Kota">
-            </label>
-            <label class="field">
-              <span class="label">Jumlah anggota keluarga yang ikut</span>
-              <select class="select" id="b-family">
-                <option value="0">Tidak membawa keluarga</option>
-                <option value="1">1 orang</option>
-                <option value="2">2 orang</option>
-                <option value="3">3 orang</option>
-                <option value="4">4 orang</option>
-                <option value="5">5 orang (maksimal)</option>
-              </select>
-            </label>
-            <div class="check-card">
-              <label class="check-row">
-                <input type="checkbox" id="b-meal">
-                <span class="check-row__box" aria-hidden="true">🍱</span>
-                <span class="check-row__text"><strong>Kupon Makan</strong><span>Termasuk anggota keluarga</span></span>
-              </label>
-              <label class="check-row">
-                <input type="checkbox" id="b-souvenir">
-                <span class="check-row__box" aria-hidden="true">🎁</span>
-                <span class="check-row__text"><strong>Souvenir</strong><span>Satu per peserta hadir</span></span>
-              </label>
-            </div>
-            <button class="btn btn--red btn--xl btn--block" id="btn-b-simpan" type="submit">
-              Daftarkan &amp; Tandai Hadir
-            </button>
-          </form>
-        </div>
-      </section>
-
-      <!-- hasil -->
-      <div id="hasil" class="hidden"></div>
+        <button class="btn btn--red btn--xl btn--block" id="btn-u-simpan" type="button">
+          ✅ Ya, saya hadir
+        </button>
+        <button class="btn btn--outline btn--block" id="btn-bukan-saya" type="button">
+          ← Bukan saya, cari nama lain
+        </button>
+      </div>
     </section>
 
-    <!-- ================= layar 3: konfigurasi bermasalah ================= -->
+    <!-- ================= layar 3: tanpa undangan ================= -->
+    <section id="view-baru" class="stack hidden">
+      <div class="card card--flat stack" style="padding:16px">
+        <h2 class="card__title">Tamu tanpa undangan</h2>
+        <p class="card__sub">Anda akan mendapat nomor undian baru (501, 502, …).</p>
+
+        <form id="walkin-form" novalidate class="stack">
+          <label class="field">
+            <span class="label">Nama lengkap <span style="color:var(--red-600)">*</span></span>
+            <input class="input" id="b-name" autocomplete="name" required maxlength="80"
+                   placeholder="Contoh: Rudi Hartono">
+          </label>
+          <label class="field">
+            <span class="label">No. HP / WhatsApp <span style="color:var(--red-600)">*</span></span>
+            <input class="input" id="b-phone" type="tel" inputmode="tel" autocomplete="tel"
+                   required maxlength="20" placeholder="0812xxxxxxx">
+            <span class="hint">Dipakai mencegah data dobel. Satu nomor HP = satu peserta.</span>
+          </label>
+          <label class="field">
+            <span class="label">Asal / instansi / divisi / wilayah</span>
+            <input class="input" id="b-org" autocomplete="organization" maxlength="80"
+                   placeholder="Contoh: Wilayah Medan Kota">
+          </label>
+          <label class="field">
+            <span class="label">Jumlah anggota keluarga yang ikut</span>
+            <select class="select" id="b-family">
+              <option value="0">Tidak membawa keluarga</option>
+              <option value="1">1 orang</option>
+              <option value="2">2 orang</option>
+              <option value="3">3 orang</option>
+              <option value="4">4 orang</option>
+              <option value="5">5 orang (maksimal)</option>
+            </select>
+          </label>
+          <div class="check-card">
+            <label class="check-row">
+              <input type="checkbox" id="b-meal">
+              <span class="check-row__box" aria-hidden="true">🍱</span>
+              <span class="check-row__text"><strong>Kupon Makan</strong><span>Termasuk anggota keluarga</span></span>
+            </label>
+            <label class="check-row">
+              <input type="checkbox" id="b-souvenir">
+              <span class="check-row__box" aria-hidden="true">🎁</span>
+              <span class="check-row__text"><strong>Souvenir</strong><span>Satu per peserta hadir</span></span>
+            </label>
+          </div>
+          <button class="btn btn--red btn--xl btn--block" id="btn-b-simpan" type="submit">
+            Daftarkan &amp; Tandai Hadir
+          </button>
+          <button class="btn btn--outline btn--block" id="btn-b-kembali" type="button" style="margin-top:6px">
+            ← Kembali ke pencarian nama
+          </button>
+        </form>
+      </div>
+    </section>
+
+    <!-- ================= layar 4: hasil ================= -->
+    <section id="view-hasil" class="hidden"></section>
+
+    <!-- ================= layar 5: konfigurasi bermasalah ================= -->
     <section id="view-error" class="card stack hidden">
       <div class="participant-hero" style="padding:0">
         <div class="participant-hero__orn" aria-hidden="true">⚠️</div>
@@ -206,7 +205,7 @@
     </section>
 
     <footer class="center small" style="color:var(--ink-soft);padding:18px 0 8px">
-      <span id="footer-event">Acara Natal</span> · Panitia Registrasi
+      <span id="footer-event">Acara Natal</span> · Meja Registrasi
     </footer>
   </main>
 

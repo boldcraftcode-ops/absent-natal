@@ -24,6 +24,7 @@ natal/
 ├── petugas.html             Aplikasi petugas registrasi (PWA offline-first)
 ├── admin.html               Panel panitia (rekap, undangan & QR, hadiah, pengaturan)
 ├── undian.html              Layar undian untuk proyektor
+├── absen.html               Absensi TAMU: pilih nama sendiri / tanpa undangan (tanpa PIN)
 ├── styles.css               Tema & tata letak (mobile-first, cetak A4 & kartu 10×15 cm)
 ├── config.js                ⚠️ SATU-SATUNYA berkas yang perlu Anda isi
 ├── api.js                   Pembungkus fetch ke Supabase RPC
@@ -32,6 +33,8 @@ natal/
 ├── sw.js                    Service Worker (pre-cache, network-first, SWR)
 ├── manifest.webmanifest     Agar aplikasi petugas bisa di-install
 ├── netlify.toml             Header cache (sw.js & config.js tidak di-cache)
+├── start.bat                ▶ KLIK DUA KALI untuk menjalankan di localhost (Windows)
+├── start.sh                 Versi Linux/macOS dari start.bat
 ├── demo.html                Pratinjau desain statis (data contoh, CSS inline, tanpa jaringan)
 ├── kartu-undangan-10x15.html       Contoh kartu undangan 10×15 cm siap cetak (data contoh)
 ├── kartu-undangan-10x15-contoh.pdf PDF contoh: A4, 2 kartu 10×15 cm per halaman
@@ -40,7 +43,12 @@ natal/
 │   ├── index.js             Logika halaman peserta
 │   ├── petugas.js           Logika petugas + antrean offline + blok nomor
 │   ├── admin.js             Logika panel admin
-│   └── undian.js            Logika layar undian (acak kriptografis + konfeti)
+│   ├── absen-tamu.js        Logika absensi tamu (cari nama / tanpa undangan)
+│   ├── undian.js            Logika layar undian (acak kriptografis + konfeti)
+│   ├── undian-audio.js      Suara undian (Web Audio, tanpa berkas mp3)
+│   ├── card-layout.js       Geometri kartu 10×15 cm
+│   ├── cards-pdf.js         Ekspor kartu ke PDF (jsPDF)
+│   └── cards-jpg.js         Ekspor kartu ke JPG/ZIP
 ├── vendor/
 │   ├── qrcode.js            qrcode-generator 2.0.4 (MIT)
 │   ├── html5-qrcode.min.js  html5-qrcode 2.3.8 (Apache-2.0)
@@ -48,6 +56,7 @@ natal/
 │   ├── jszip.min.js         JSZip 3.10.2 (MIT / GPLv3)
 │   └── LICENSE-*.txt        Lisensi masing-masing library
 ├── tools/
+│   ├── lokal-server.mjs     Server statis untuk uji lokal (dipakai start.bat)
 │   ├── make-demo.mjs        Pembuat demo.html (node tools/make-demo.mjs)
 │   ├── make-icons.py        Pembuat ikon aplikasi (python3 tools/make-icons.py)
 │   ├── make-cards-sample.mjs  Pembuat kartu-undangan-10x15.html
@@ -127,16 +136,65 @@ Catatan: bila key berawalan `sb_publishable_`, `api.js` **hanya** mengirim heade
 
 ---
 
-## 5. Uji lokal
+## 5. Uji lokal (sebelum upload ke GitHub/Netlify)
 
-```bash
-cd natal
-npx serve . -l 4173          # atau: python3 -m http.server 4173
-# buka http://localhost:4173/index.html
-```
+### Cara tercepat di Windows — klik dua kali `start.bat`
 
-Kamera pemindai QR butuh **HTTPS**. Untuk uji kamera di lokal, gunakan
-`npx serve . --ssl-cert ... --ssl-key ...` atau langsung uji di alamat Netlify.
+`start.bat` sudah ada di folder aplikasi. Klik dua kali, tunggu 1–2 detik,
+browser terbuka sendiri di `http://localhost:4173/index.html`.
+Hentikan dengan **Ctrl+C** di jendela hitamnya.
+
+`start.bat` menjalankan `tools/lokal-server.mjs` dengan **Node.js** (tanpa
+`npm install`, tanpa internet). Bila Node.js belum ada, ia otomatis memakai
+**Python** (`python -m http.server`) dan tetap membuka browser. Bila keduanya
+tidak ada, muncul petunjuk pemasangan yang singkat.
+
+| Alamat | Untuk |
+|---|---|
+| <http://localhost:4173/index.html> | halaman tamu (isi token: `index.html?t=…`) |
+| <http://localhost:4173/absen.html> | absensi TAMU (cari nama / tanpa undangan) |
+| <http://localhost:4173/admin.html> | panel admin (PIN bawaan `admin1234`) |
+| <http://localhost:4173/undian.html> | layar undian + suara |
+| <http://localhost:4173/demo.html> | pratinjau desain tanpa Supabase |
+| <http://localhost:4173/kartu-undangan-10x15.html> | contoh kartu |
+
+Ganti port: `start.bat 8080`. Linux/macOS: `./start.sh` atau `./start.sh 8080`.
+
+**Kenapa tidak boleh klik dua kali `index.html`?** Alamat `file://` memblokir
+ES module, `fetch`, dan service worker — halaman akan tampak kosong. Aplikasi
+ini wajib lewat `http://`.
+
+### Yang ditiru server lokal dari Netlify
+
+`tools/lokal-server.mjs` menyamakan hal-hal yang bisa membuat "jalan di lokal
+tapi gagal setelah deploy":
+
+* `sw.js` dan `config.js` dikirim `no-store` / `no-cache` (service worker lama
+  tidak nyangkut, `config.js` yang baru langsung terpakai),
+* `Permissions-Policy: camera=(self)` sehingga pemindai QR tidak diblokir,
+* `/undangan` → `/index.html` (sama seperti `netlify.toml`),
+* `vendor/*` `immutable`, `js/*` & `*.css` `must-revalidate`, ETag + `304`,
+* folder `tests/`, `node_modules`, dan `.git` tidak dapat diakses dari browser.
+
+### Data & PIN di lokal
+
+Supabase diakses lewat internet, jadi **lokal maupun Netlify memakai database
+yang sama**. Uji dengan hati-hati: jangan menekan "Bersihkan data" di panel
+admin saat data asli sudah masuk. Untuk uji coba yang aman, buat project
+Supabase kedua (gratis) lalu tukar `SUPABASE_URL`/`SUPABASE_ANON_KEY` di
+`config.js`.
+
+Bila `config.js` masih kosong, aplikasi tetap terbuka tetapi menampilkan pesan
+"belum dikonfigurasi"; `demo.html` bisa dilihat tanpa database sama sekali.
+
+### Kamera QR di lokal
+
+Pemindai QR bawaan (`petugas.html`) butuh **HTTPS**. Di `http://localhost`
+Chrome masih mengizinkan kamera untuk `localhost` (Secure Context), tetapi dari
+HP lewat `http://192.168.x.x` **tidak**. Karena itu alur lapangan memakai
+kamera bawaan HP → `absen.html` (§11b), yang tetap berjalan di alamat LAN.
+Kamera hanya dipakai `petugas.html`/`index.html?mode=petugas`; semua halaman
+lain tidak butuh izin kamera.
 
 ### Uji otomatis
 
@@ -170,6 +228,11 @@ node tools/make-demo.mjs
 ```
 
 ## 7. Deploy ke Netlify
+
+> Sebelum upload ke GitHub/Netlify, jalankan dulu di komputer sendiri dengan
+> **`start.bat`** (§5) — semua halaman bisa dicoba tanpa memakai credit Netlify.
+> Berkas `start.bat`, `start.sh`, dan `tools/lokal-server.mjs` tidak mengganggu
+> situs; keduanya boleh ikut ter-upload (tidak dipanggil dari browser).
 
 **Cara A — drag and drop (paling cepat)**
 1. Buka <https://app.netlify.com/drop>.
@@ -205,10 +268,10 @@ Setelah punya domain:
 |---|---|---|
 | 1 | Peserta punya undangan | Scan QR undangan → halaman terbuka → tekan **Konfirmasi Hadir** → nomor undian 3 digit besar → screenshot |
 | 2 | HP peserta tanpa internet | Tunjukkan QR ke petugas → petugas scan di `petugas.html` → nama + nomor undian besar tampil untuk disebutkan |
-| 3 | Tanpa undangan | Scan **QR umum** di meja → isi nama, no. HP, asal, **jumlah anggota keluarga (dropdown 0–5)**, centang **Kupon Makan** / **Souvenir** → nomor undian |
+| 3 | Tanpa undangan | Scan **QR umum** di meja → `absen.html` → **➕ Saya tidak menerima undangan** → isi nama, no. HP, asal, **jumlah anggota keluarga (dropdown 0–5)**, centang **Kupon Makan** / **Souvenir** → nomor undian baru ≥ 501 |
 | 4 | **Punya undangan tapi lupa bawa kartu QR** | Petugas buka tab **Tambah** → pilih nama tamu di dropdown **“Tamu sudah punya undangan?”** → isian terisi otomatis → lengkapi keluarga/kupon → **Hadirkan tamu ini** → nomor undian **lama** dipakai ulang (tidak ada nomor baru) |
 | Petugas offline | Petugas | Scan & tambah peserta tetap jalan; antrean tersimpan; sinkron otomatis saat sinyal kembali |
-| Petugas **tanpa pemindai QR** | Petugas | Kamera bawaan HP memindai **QR meja registrasi** → `absen.html` → tab **Tamu undangan** (dropdown nama) atau **Tanpa undangan** (§11b) |
+| Tamu **tanpa undangan fisik** | Tamu sendiri (HP di meja) | Kamera bawaan HP memindai **QR meja registrasi** → `absen.html` → cari & pilih namanya (§11b) |
 | Undian | MC | `undian.html` di proyektor; pilih hadiah → MULAI (spasi) → Konfirmasi / Tidak hadir. Suara Natal + drum gulir otomatis (§13b), tombol 🔊 untuk membisukan |
 
 Aturan penting yang sudah diterapkan:
@@ -407,49 +470,88 @@ dikirim ke panitia/pengembang lewat WhatsApp, sehingga tidak perlu membaca konso
 
 ---
 
-## 11b. Petugas TANPA pemindai QR di browser (kamera bawaan HP)
+## 11b. Tamu tidak membawa undangan fisik — halaman absensi TAMU
 
-Kalau ada HP petugas yang tidak bisa membuka pemindai QR di `petugas.html`
-(izin kamera diblokir, WebView kaku, atau browser lama), **tidak perlu memaksa**.
-Pakai kamera bawaan HP + halaman absensi khusus:
+Kasus yang ditangani: tamu **diundang** tetapi kartu/QR-nya tertinggal di rumah.
+Dulu solusinya halaman ber-PIN yang dipegang petugas; sekarang halaman itu
+**dipakai tamu sendiri**, jadi PIN dihapus dan halaman tidak lagi memuat token
+undangan siapa pun.
 
-### Cara kerja
+### Tiga jalur kehadiran
 
-| Langkah | Keterangan |
-|---|---|
-| 1 | Cetak **QR meja registrasi**: panel admin → tab **Undangan & QR** → **🔳 QR umum meja registrasi** → **🖨️ Cetak** |
-| 2 | Petugas memindai QR itu dengan **aplikasi kamera bawaan** HP (bukan di dalam browser) |
-| 3 | QR membuka `absen.html?mode=absen` → halaman absensi 2 tab |
-| 4 | Masukkan **PIN petugas sekali** — PIN diingat di HP itu, tidak perlu mengetik ulang |
-
-Alamat yang dipakai QR: `https://daftartamu-natal.netlify.app/absen.html?mode=absen`
-
-### Dua tab di halaman absensi (`absen.html`)
-
-| Tab | Untuk | Isi |
+| Kondisi tamu | Yang dilakukan | Nomor undian |
 |---|---|---|
-| **🎫 Tamu undangan** | Tamu yang punya undangan (lupa bawa kartu QR / kode) | kolom cari + **dropdown nama sesuai rekap hadir** (memuat nomor undian, ditandai `✓ sudah hadir`) → pilih nama → isi jumlah keluarga & centang kupon/souvenir → **Tandai Hadir** |
-| **➕ Tanpa undangan** | Tamu yang memang tidak diundang | form nama, no. HP, asal, jumlah keluarga, kupon, souvenir → **Daftarkan & Tandai Hadir** (nomor baru 501, 502, …) |
+| Membawa undangan fisik | pindai QR di kartu → `index.html?t=…` → **Konfirmasi Hadir** | nomor lamanya |
+| **Diundang, undangan tidak dibawa** | pindai **QR meja registrasi** → `absen.html` → cari & pilih namanya sendiri → **Ya, saya hadir** | **nomor lamanya (tidak pernah baru)** |
+| Tidak diundang sama sekali | `absen.html` → **➕ Saya tidak menerima undangan** → isi form | nomor baru ≥ 501 |
+| Kondisi abnormal: tamu tidak bisa memakai HP sendiri | panitia memakai panel admin → tab **Undangan & QR** → **🗒️ Meja registrasi (mode panitia)** | nomor lamanya |
 
-Keduanya menampilkan **nomor undian besar** setelah tersimpan, siap
-disebutkan/diperlihatkan ke tamu. Data langsung masuk ke server (tanpa antrean
-offline), jadi panel admin & layar undian ikut terbarui.
+### Cara kerja halaman tamu (`absen.html`)
 
-Catatan:
+1. Tamu memindai QR meja registrasi dengan **kamera bawaan HP** (bukan di dalam browser).
+2. Halaman langsung terbuka — **tanpa PIN**. Tamu mengetik beberapa huruf namanya
+   (atau asal wilayah/instansinya).
+3. Muncul daftar nama **lengkap** dengan tanda `✓ sudah hadir`; tamu menekan namanya.
+4. Muncul konfirmasi **“Betul ini Anda?”** — nama besar + asal + tombol
+   **✅ Ya, saya hadir** dan **← Bukan saya, cari nama lain**.
+5. Nomor undian lamanya tampil besar, siap ditunjukkan ke panitia.
+6. Bila salah ketuk, tamu bisa menekan **“Salah pilih? Batalkan pencatatan ini”**
+   dalam **3 menit** (setelah itu panitia yang membatalkan lewat panel admin).
 
-* **Tidak butuh kamera, tidak butuh pustaka QR**, jadi halaman ini sangat ringan
-  dan cocok untuk HP jadul.
-* Daftar undangan diambil sekali lewat `staff_data(PIN)` (fungsi yang sudah ada)
-  lalu **disimpan di HP** — pencarian tetap jalan walau sinyal di lokasi lemah.
-  Tombol **⟳ Muat ulang** memperbarui daftar.
-* Halaman ini **hanya mencatat** (tidak menerbitkan nomor baru saat offline),
-  berbeda dengan `petugas.html` yang punya blok nomor offline. Jadi gunakan
-  halaman ini saat ada internet di lokasi; bila ingin tetap jalan tanpa sinyal,
-  gunakan `petugas.html` di HP yang kameranya bisa.
-* QR undangan tamu tetap membuka halaman peserta biasa (`index.html?t=…`).
-  Halaman peserta juga punya pintasan **“Petugas? Buka absensi meja registrasi →”**
-  di layar undangan, dan mendukung `index.html?mode=absen&pin=PIN` untuk
-  petugas yang ingin melihat daftar tanpa membuka halaman terpisah.
+Nama sengaja ditampilkan **lengkap** (bukan nama depan saja) karena di acara
+gereja banyak nama depan kembar (Maria, Yohanes, Ruth) — nama depan saja
+malah membuat tamu salah pilih. Yang disembunyikan adalah **nomor undian**:
+`lookup_invited()` hanya mengembalikan nama + asal + status hadir, **tidak
+pernah** token, nomor HP, atau data keluarga. Fungsi `staff_data()` (yang
+memuat token semua peserta) **tidak dipakai** di halaman ini.
+
+### Pemeriksaan data dobel — manual, tapi ada alatnya
+
+Panitia memeriksa manual. Tiga alat bantu:
+
+1. **Penghitung sisa undangan.** Setiap pencarian dan setiap pencatatan
+   mengembalikan `sisa_belum_hadir`. Angka ini **harus turun satu** tiap tamu.
+   Turun dua = ada data dobel; melompat dua = ada tamu salah memilih nama.
+2. **Panel admin → Meja registrasi (mode panitia).** Menampilkan
+   *“Undangan yang belum tercatat hadir: N”* + daftar **Aktivitas terakhir**
+   (nama, jam, sumber) untuk menelusuri kejanggalan.
+3. **`absen.html?pantau=1&kios=1`** — layar besar untuk meja registrasi:
+   nomor undian ikut tampil, dan layar otomatis bersih lagi setelah 25 detik
+   supaya data tamu sebelumnya tidak tertinggal.
+
+Membatalkan salah catat: panel admin → tab **Rekap hadir** → tombol **Batal**
+pada baris peserta (atau `admin_toggle`). Bila duplikat benar-benar terjadi,
+hapus baris tamu tanpa undangan yang salah (`admin_delete`) — nomor undangan
+1–500 milik tamu undangan tidak boleh dihapus, cukup dibatalkan kehadirannya.
+
+### Kalau tamu diundang tetapi TIDAK ADA di daftar
+
+Berarti namanya belum masuk rekap. Dua pilihan:
+
+* daftarkan sebagai tamu tanpa undangan (nomor ≥ 501) — paling cepat, tetapi
+  orang itu punya nomor berbeda dari yang tertulis di undangannya;
+* panitia menambahkan lewat panel admin → tab **Rekap hadir** → **Tambah**
+  dengan centang **tamu undangan**, sehingga nomornya tetap di rentang 1–500.
+
+### Yang perlu dicetak & disiapkan
+
+| Berkas | Kegunaan |
+|---|---|
+| **QR meja registrasi** | admin → **Undangan & QR** → **🔳 QR umum meja registrasi** → **🖨️ Cetak** (A5 cukup) |
+| Tautan langsung | `https://<situs>/absen.html` — bisa juga ditulis di papan pengumuman |
+| PIN petugas & admin | hanya untuk panel admin/`petugas.html`, **tidak** dipakai halaman tamu |
+
+Catatan teknis:
+
+* `absen.html` tidak butuh kamera maupun pustaka QR → sangat ringan, cocok HP jadul.
+* Halaman ini **membutuhkan internet** (tidak ada antrean offline) karena
+  datanya langsung ditulis ke server. Untuk lokasi tanpa sinyal, gunakan
+  `petugas.html` di HP yang kameranya bisa.
+* RPC baru: `lookup_invited()`, `attend_invited()`, `attend_undo()`,
+  `recent_attendance()`. Semuanya `security definer` dan hanya memberi akses
+  baca terbatas / tulis satu baris; tabel tetap tertutup RLS.
+* Jalankan ulang `supabase/schema.sql` (aman, tidak menghapus data) agar
+  fungsi baru ini ada.
 
 ---
 
@@ -650,6 +752,25 @@ Kontrol:
 Berkas: `js/undian-audio.js` (modul mandiri, tanpa dependensi). Contoh bunyi
 (rekaman 4 detik dari mesin yang sama, dibuat dengan Python):
 `undian-suara-demo.wav` di folder induk.
+
+---
+
+## 13c. Meja registrasi versi panitia (di dalam panel admin)
+
+Dipakai bila tamu **tidak bisa memakai HP-nya sendiri** (HP mati, lupa membawa,
+orang tua yang perlu dibantu) dan menyebutkan namanya ke panitia.
+
+Panel admin → tab **Undangan & QR** → tombol **🗒️ Meja registrasi (mode panitia)**.
+
+| Bagian | Fungsi |
+|---|---|
+| Penghitung **“Undangan yang belum tercatat hadir: N”** | pemantauan manual: harus turun **satu** tiap tamu |
+| Cari + dropdown **nama sesuai rekap hadir** | memilih tamu undangan; nomor lamanya dipakai, **tidak membuat nomor baru** |
+| Jumlah keluarga + 🍱 kupon + 🎁 souvenir | ikut tersimpan saat **Hadirkan** |
+| **➕ Tamu tanpa undangan** | nama, HP (boleh dikosongkan), asal → nomor baru ≥ 501. Nama yang sudah terdaftar **ditolak** (`admin_add`), jadi tidak bisa dobel |
+| **🕘 Aktivitas terakhir** | 8 pencatatan terakhir (nama, jam, sumber) untuk menelusuri kejanggalan |
+
+Tombol ini tidak mengubah apa pun bila tidak dibuka — panel admin tetap ringan.
 
 ---
 

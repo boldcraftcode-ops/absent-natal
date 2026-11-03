@@ -184,6 +184,21 @@ export const api = {
     p_souvenir: Boolean(opts.souvenir),
     p_family_names: null
   }),
+  // halaman TAMU (absen.html) — tanpa PIN, tanpa token
+  lookupInvited: (q, opts = {}) => rpc('lookup_invited', {
+    p_q: String(q || ''),
+    p_limit: Math.max(1, Math.min(50, Number(opts.limit) || 20)),
+    p_tampil_nomor: Boolean(opts.tampilNomor)
+  }),
+  attendInvited: (key, opts = {}) => rpc('attend_invited', {
+    p_key: String(key || ''),
+    p_family: Math.max(0, Math.min(5, Number(opts.family) || 0)),
+    p_meal: Boolean(opts.meal),
+    p_souvenir: Boolean(opts.souvenir)
+  }),
+  attendUndo: (key) => rpc('attend_undo', { p_key: String(key || '') }),
+  recentAttendance: (n = 8) => rpc('recent_attendance', { p_n: Math.max(1, Math.min(20, Number(n) || 8)) }),
+
   walkinRegister: (name, phone, org, family, meal = false, souvenir = false) =>
     rpc('walkin_register', {
       p_name: name,

@@ -464,6 +464,104 @@ results.push('== 9. schema_check() + pelengkap kolom');
 }
 
 
+// ------------------------------- 11. absensi mandiri tamu (tanpa PIN)
+results.push('== 11. Absensi mandiri tamu (lookup_invited / attend_invited)');
+{
+  await rpc('admin_reset', { p_pin: 'admin1234', p_scope: 'all' });
+  await rpc('admin_import', {
+    p_pin: 'admin1234',
+    p_rows: JSON.stringify([
+      { name: 'Maria Sinaga', phone: '', org: 'Medan' },
+      { name: 'Maria Hutapea', phone: '', org: 'Medan' },
+      { name: 'Yohanes Situmorang', phone: '', org: 'Sidikalang' },
+      { name: 'Ruth Sitorus', phone: '', org: 'Pematang Siantar' }
+    ])
+  });
+
+  // ---- pencarian: tanpa nomor undian & TANPA token
+  const l1 = await asRole('anon', () => rpc('lookup_invited',
+    { p_q: 'maria', p_limit: 20, p_tampil_nomor: false }));
+  check('lookup_invited menemukan nama mirip (2 orang)', l1.rows?.length === 2, JSON.stringify(l1).slice(0, 120));
+  check('lookup_invited menampilkan nama LENGKAP (mudah dibedakan)',
+    l1.rows.map((r) => r.nama).sort().join('|') === 'Maria Hutapea|Maria Sinaga',
+    JSON.stringify(l1.rows.map((r) => r.nama)));
+  check('lookup_invited menyembunyikan nomor undian dari layar tamu',
+    l1.rows.every((r) => r.no == null));
+  check('lookup_invited tidak pernah mengembalikan token/nomor HP',
+    !/token|phone|hp/i.test(JSON.stringify(l1)));
+  check('lookup_invited mengirim penghitung sisa untuk pemantauan',
+    l1.sisa_belum_hadir === 4 && l1.hadir_undangan === 0, JSON.stringify(l1).slice(0, 160));
+  check('lookup_invited: kata kunci < 2 huruf tidak membocorkan daftar',
+    (await rpc('lookup_invited', { p_q: 'm', p_limit: 20, p_tampil_nomor: true })).rows?.length === 0);
+
+  const l2 = await rpc('lookup_invited', { p_q: 'maria', p_limit: 20, p_tampil_nomor: true });
+  check('mode panitia: nomor undian ikut tampil', l2.rows.every((r) => r.no >= 1), JSON.stringify(l2.rows));
+  check('setiap baris punya kunci acak 10 karakter',
+    l2.rows.every((r) => /^[0-9a-f]{10}$/.test(r.kunci)));
+
+  // ---- tamu menghadirkan dirinya sendiri
+  const pilih = l2.rows.find((r) => r.nama === 'Maria Hutapea');
+  const a1 = await rpc('attend_invited',
+    { p_key: pilih.kunci, p_family: 2, p_meal: true, p_souvenir: false });
+  check('attend_invited mencatat kehadiran', a1.ok === true && a1.status === 'ok', JSON.stringify(a1).slice(0, 140));
+  check('attend_invited memakai NOMOR UNDIAN LAMA (tidak membuat nomor baru)',
+    Number(a1.lottery_no) === Number(pilih.no), `${a1.lottery_no} vs ${pilih.no}`);
+  check('attend_invited menyimpan jumlah keluarga & kupon',
+    a1.family_count === 2 && a1.wants_meal === true, JSON.stringify(a1).slice(0, 140));
+  check('sisa undangan turun satu setelah hadir', a1.sisa_belum_hadir === 3, String(a1.sisa_belum_hadir));
+  check('jumlah peserta TIDAK bertambah', (await q('select count(*)::int c from participants'))[0].c === 4);
+
+  const a2 = await rpc('attend_invited', { p_key: pilih.kunci, p_family: 0, p_meal: false, p_souvenir: false });
+  check('menekan dua kali -> status already (idempoten)', a2.status === 'already', JSON.stringify(a2).slice(0, 120));
+  check('keluarga tidak turun saat diulang', a2.family_count === 2);
+  check('sisa tidak berubah saat diulang', a2.sisa_belum_hadir === 3);
+
+  // ---- pengaman
+  check('kunci palsu ditolak', (await rpc('attend_invited', { p_key: 'zzzzzzzzzz' })).status === 'not_found');
+  check('kunci terlalu pendek ditolak', (await rpc('attend_invited', { p_key: 'abc' })).status === 'invalid');
+
+  const w = await rpc('walkin_register', {
+    p_name: 'Tamu Tanpa Undangan', p_phone: '081399990011', p_org: 'Umum',
+    p_family: 0, p_meal: false, p_souvenir: false, p_family_names: null
+  });
+  const kWalk = (await q("select substr(md5(id::text || 'natal'),1,10) k from participants where name='Tamu Tanpa Undangan'"))[0].k;
+  const a3 = await rpc('attend_invited', { p_key: kWalk });
+  check('tamu tanpa undangan tidak bisa lewat attend_invited', a3.status === 'not_invited', JSON.stringify(a3).slice(0, 120));
+  check('tamu tanpa undangan tetap dapat nomor >= 501', Number(w.lottery_no) >= 501, String(w.lottery_no));
+
+  // ---- batalkan salah pilih (maks 3 menit)
+  const undo = await rpc('attend_undo', { p_key: pilih.kunci });
+  check('attend_undo membatalkan pencatatan', undo.ok === true, JSON.stringify(undo).slice(0, 120));
+  const sesudah = (await q("select attended from participants where name='Maria Hutapea'"))[0];
+  check('setelah dibatalkan status kembali belum hadir', sesudah.attended === false);
+  await q("update participants set attended_at = now() - interval '10 minutes' where name='Maria Hutapea'");
+  await q("update participants set attended = true, attended_at = now() - interval '10 minutes' where name='Maria Hutapea'");
+  const undoLama = await rpc('attend_undo', { p_key: pilih.kunci });
+  check('attend_undo menolak setelah 3 menit', undoLama.status === 'too_late', JSON.stringify(undoLama).slice(0, 120));
+
+  // ---- aktivitas terakhir untuk pemeriksaan manual
+  const rec = await rpc('recent_attendance', { p_n: 5 });
+  check('recent_attendance mengembalikan aktivitas', Array.isArray(rec.rows) && rec.rows.length >= 1);
+  check('recent_attendance tanpa nomor undian/token',
+    !/lottery|token|phone/i.test(JSON.stringify(rec)));
+
+  // ---- absensi ditutup: tidak bisa mencari / mencatat
+  await rpc('admin_set_setting', { p_pin: 'admin1234', p_key: 'attendance_open', p_value: 'false' });
+  check('lookup_invited menolak saat absensi ditutup',
+    (await rpc('lookup_invited', { p_q: 'maria', p_limit: 20, p_tampil_nomor: true })).status === 'closed');
+  check('attend_invited menolak saat absensi ditutup',
+    (await rpc('attend_invited', { p_key: pilih.kunci })).status === 'closed');
+  await rpc('admin_set_setting', { p_pin: 'admin1234', p_key: 'attendance_open', p_value: 'true' });
+
+  // ---- hak akses
+  check('anon boleh memanggil lookup_invited',
+    await asRole('anon', async () => (await rpc('lookup_invited', { p_q: 'ruth', p_limit: 5, p_tampil_nomor: true })).ok === true));
+  check('anon tetap TIDAK boleh membaca tabel participants langsung',
+    await asRole('anon', async () => {
+      try { await q('select count(*) from participants'); return false; } catch { return true; }
+    }));
+}
+
 // ------------------------------------------------------------------ ringkasan
 console.log(results.join('\n'));
 console.log(`\n${pass} lulus, ${failures.length} gagal`);

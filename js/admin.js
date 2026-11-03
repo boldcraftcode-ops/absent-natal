@@ -137,6 +137,7 @@ function renderAll() {
   renderPrizes();
   renderWinners();
   renderSettings();
+  if (M.aktif) renderMeja();     // meja registrasi ikut terbarui saat auto-refresh
 }
 
 /** Label ringkas "🍱 Makan · 🎁 Souvenir · 👨‍👩‍👧 2 keluarga". */
@@ -807,15 +808,19 @@ function exportLinksXlsx(btn) {
 }
 
 function showGeneralQr() {
-  // QR meja registrasi: membuka halaman absensi petugas (2 tab: tamu undangan / tanpa undangan)
-  const url = `${currentDomain()}/absen.html?mode=absen`;
+  // QR meja registrasi: membuka halaman absensi TAMU (tanpa PIN).
+  // Tamu memilih namanya sendiri bila tidak membawa undangan fisik.
+  const url = `${currentDomain()}/absen.html`;
   const box = document.getElementById('qr-preview');
   box.innerHTML = `
     <div class="card card--flat" style="max-width:420px;margin:14px auto 0">
       <h3 class="card__title center">Absensi Meja Registrasi</h3>
       <p class="card__sub center" style="margin-bottom:10px">
-        Pindai dengan kamera bawaan HP → halaman absensi petugas
-        (tamu undangan &amp; tamu tanpa undangan)
+        Pindai dengan kamera bawaan HP → halaman absensi TAMU.<br>
+        Tamu yang tidak membawa undangan fisik cukup mencari dan memilih namanya sendiri.
+      </p>
+      <p class="small center" style="margin:0 0 10px;color:var(--ink-soft)">
+        Cetak dan letakkan di meja registrasi. Ukuran kertas A5 sudah cukup.
       </p>
       <div class="qr-box" style="margin:0 auto"><img alt="QR umum" src="${qrPngDataUrl(url, { size: 480, margin: 2 })}" style="width:100%;max-width:260px"></div>
       <p class="small center" style="margin:10px 0 0;color:var(--ink-soft);word-break:break-all">${esc(url)}</p>
@@ -824,6 +829,182 @@ function showGeneralQr() {
       </div>
     </div>`;
   box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+/* ================================================== meja registrasi (panitia)
+   Versi ringkas dari absensi.html lama: dipakai bila TAMU menyebutkan namanya
+   ke panitia. Nomor undian selalu nomor yang sudah terbit (tidak membuat nomor
+   baru); nomor baru hanya untuk tamu tanpa undangan.
+   ====================================================================== */
+const M = { aktif: false, hasil: [], terpilih: null, busy: false };
+
+function bukaMeja() {
+  M.aktif = true;
+  document.getElementById('meja-panitia')?.classList.remove('hidden');
+  renderMeja();
+  muatAktivitas();
+  document.getElementById('meja-panitia')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function tutupMeja() {
+  M.aktif = false;
+  document.getElementById('meja-panitia')?.classList.add('hidden');
+}
+
+function renderMeja() {
+  const p = S.data.participants || [];
+  // hanya tamu undangan; tamu tanpa undangan didaftarkan lewat form di bawahnya
+  const undangan = p.filter((x) => x.invited);
+  const belum = undangan.filter((x) => !x.attended).length;
+  const hadir = undangan.length - belum;
+
+  const sisa = document.getElementById('meja-sisa');
+  if (sisa) sisa.textContent = String(belum);
+  const ket = document.getElementById('meja-hadir');
+  if (ket) ket.textContent = ` (${hadir} dari ${undangan.length} undangan sudah hadir)`;
+
+  if (!M.aktif) return;
+  const q = normName(document.getElementById('m-cari')?.value || '');
+  const digits = normPhone(document.getElementById('m-cari')?.value || '');
+  M.hasil = (!q && !digits ? undangan : undangan.filter((x) =>
+    normName(x.name).includes(q)
+    || normName(x.org || '').includes(q)
+    || (digits && String(x.phone || '').includes(digits))
+    || pad3(x.lottery_no) === String(document.getElementById('m-cari')?.value || '').trim()
+  )).slice(0, 80);
+
+  const sel = document.getElementById('m-pilih');
+  if (sel) {
+    sel.innerHTML = '<option value="">— Pilih nama tamu —</option>'
+      + M.hasil.map((x) => `<option value="${esc(x.id)}">${esc(pad3(x.lottery_no))} · ${esc(x.name)}`
+        + `${x.org ? ' — ' + esc(x.org) : ''}${x.attended ? ' ✓ sudah hadir' : ''}</option>`).join('');
+    sel.value = M.terpilih ? String(M.terpilih.id) : '';
+  }
+  const info = document.getElementById('m-info');
+  if (info) {
+    info.textContent = M.hasil.length
+      ? `${M.hasil.length} nama tampil. Pilih nama, lalu tekan Hadirkan.`
+      : 'Tidak ada nama yang cocok. Untuk tamu baru, pakai form di bawah.';
+  }
+}
+
+function pilihMeja(id) {
+  const kartu = document.getElementById('m-kartu');
+  const btn = document.getElementById('m-hadirkan');
+  if (!id) {
+    M.terpilih = null;
+    kartu?.classList.add('hidden');
+    if (btn) btn.disabled = true;
+    return;
+  }
+  const p = (S.data.participants || []).find((x) => String(x.id) === String(id));
+  M.terpilih = p || null;
+  if (!p) return;
+  if (kartu) {
+    kartu.classList.remove('hidden');
+    kartu.innerHTML = `<div class="notice ${p.attended ? 'notice--warn' : 'notice--info'}" style="margin:0">
+      <span class="notice__icon" aria-hidden="true">${p.attended ? '⚠️' : '🎫'}</span>
+      <div><strong>${esc(p.name)}</strong> — nomor undian <strong>${esc(pad3(p.lottery_no))}</strong>
+      <div class="small">${p.org ? esc(p.org) + ' · ' : ''}${p.attended
+        ? 'sudah tercatat hadir ' + esc(fmtTime(p.attended_at)) : 'belum hadir'}</div></div></div>`;
+  }
+  const fam = document.getElementById('m-family');
+  if (fam) fam.value = String(Math.max(0, Math.min(5, p.family_count || 0)));
+  const meal = document.getElementById('m-meal');
+  const souv = document.getElementById('m-souvenir');
+  if (meal) meal.checked = Boolean(p.wants_meal);
+  if (souv) souv.checked = Boolean(p.wants_souvenir);
+  if (btn) {
+    btn.disabled = false;
+    btn.textContent = p.attended ? `Perbarui data ${pad3(p.lottery_no)}` : `Hadirkan — nomor ${pad3(p.lottery_no)}`;
+  }
+}
+
+async function hadirkanMeja() {
+  const p = M.terpilih;
+  if (!p) { toast('Pilih nama dulu.', 'warn'); return; }
+  if (M.busy) return;
+  if (!online()) { toast('Butuh koneksi internet.', 'err', 4000); return; }
+
+  const btn = document.getElementById('m-hadirkan');
+  M.busy = true;
+  if (btn) { btn.disabled = true; btn.textContent = 'Memproses…'; }
+  try {
+    const res = await api.confirmAttendance(p.token, {
+      family: Math.min(5, Number(document.getElementById('m-family')?.value || 0)),
+      meal: Boolean(document.getElementById('m-meal')?.checked),
+      souvenir: Boolean(document.getElementById('m-souvenir')?.checked)
+    });
+    if (res?.status === 'closed') { toast('Absensi sedang ditutup.', 'warn'); return; }
+    if (res?.ok === false) { toast(res.message || 'Gagal mencatat kehadiran.', 'err', 5000); return; }
+
+    toast(`${res.name || p.name} tercatat hadir — nomor ${pad3(res.lottery_no ?? p.lottery_no)}`,
+      res.status === 'already' ? 'warn' : 'ok', 5000);
+    await reload(true);
+    renderMeja();
+    muatAktivitas();
+    pilihMeja('');
+    document.getElementById('m-cari').value = '';
+    renderMeja();
+  } catch (e) {
+    toast(e?.message || 'Gagal mencatat kehadiran.', 'err', 5000);
+  } finally {
+    M.busy = false;
+    if (btn) btn.disabled = !M.terpilih;
+  }
+}
+
+async function daftarTanpaUndanganMeja(ev) {
+  ev.preventDefault();
+  if (M.busy) return;
+  const nama = (document.getElementById('m-b-name')?.value || '').trim();
+  const hp = (document.getElementById('m-b-phone')?.value || '').trim();
+  const org = (document.getElementById('m-b-org')?.value || '').trim();
+  if (nama.length < 2) { toast('Nama minimal 2 huruf.', 'err'); return; }
+  if (!online()) { toast('Butuh koneksi internet.', 'err', 4000); return; }
+
+  const btn = document.getElementById('m-b-simpan');
+  M.busy = true;
+  if (btn) { btn.disabled = true; btn.textContent = 'Memproses…'; }
+  try {
+    // admin_add: boleh tanpa nomor HP, dan MENOLAK nama yang sudah terdaftar
+    // (pengaman data dobel otomatis — pesannya menyuruh mencari di dropdown).
+    const res = await api.adminAdd(S.pin, {
+      name: nama, phone: hp || null, org: org || null,
+      family_count: 0, attended: true, invited: false
+    });
+    if (res?.ok === false) {
+      toast(`${res.message || 'Pendaftaran gagal.'} Bila tamu ini sebenarnya diundang, `
+        + 'cari namanya di daftar di atas.', 'err', 7000);
+      return;
+    }
+    toast(`${res.name || nama} terdaftar — nomor ${pad3(res.lottery_no)}`,
+      res.merged ? 'warn' : 'ok', 6000);
+    document.getElementById('m-form-baru').reset();
+    await reload(true);
+    renderMeja();
+    muatAktivitas();
+  } catch (e) {
+    toast(e?.message || 'Pendaftaran gagal.', 'err', 6000);
+  } finally {
+    M.busy = false;
+    if (btn) { btn.disabled = false; btn.textContent = 'Daftarkan & tandai hadir'; }
+  }
+}
+
+async function muatAktivitas() {
+  const box = document.getElementById('m-aktivitas');
+  if (!box) return;
+  try {
+    const res = await api.recentAttendance(8);
+    const rows = res?.rows || [];
+    box.innerHTML = rows.length
+      ? rows.map((r) => `<li><strong>${esc(r.nama)}</strong>`
+        + `<span style="color:var(--ink-soft)"> · ${esc(fmtTime(r.waktu))} · ${esc(sourceLabel(r.sumber))}</span></li>`).join('')
+      : '<li>Belum ada kehadiran tercatat.</li>';
+  } catch {
+    box.innerHTML = '<li>Tidak dapat memuat aktivitas.</li>';
+  }
 }
 
 /* ======================================================== ekspor absensi */
@@ -1328,6 +1509,18 @@ function bind() {
   }
   document.getElementById('btn-links-xlsx')?.addEventListener('click', exportLinksXlsx);
   document.getElementById('btn-general-qr')?.addEventListener('click', showGeneralQr);
+
+  // meja registrasi versi panitia
+  document.getElementById('btn-meja')?.addEventListener('click', () => {
+    const box = document.getElementById('meja-panitia');
+    if (box && box.classList.contains('hidden')) bukaMeja(); else tutupMeja();
+  });
+  document.getElementById('btn-meja-tutup')?.addEventListener('click', tutupMeja);
+  document.getElementById('m-muat')?.addEventListener('click', () => { renderMeja(); muatAktivitas(); });
+  document.getElementById('m-cari')?.addEventListener('input', debounce(renderMeja, 180));
+  document.getElementById('m-pilih')?.addEventListener('change', (e) => pilihMeja(e.target.value));
+  document.getElementById('m-hadirkan')?.addEventListener('click', hadirkanMeja);
+  document.getElementById('m-form-baru')?.addEventListener('submit', daftarTanpaUndanganMeja);
   document.getElementById('btn-build-cards')?.addEventListener('click', buildCards);
   document.getElementById('domain-input')?.addEventListener('change', (e) => {
     let v = e.target.value.trim().replace(/\/+$/, '');

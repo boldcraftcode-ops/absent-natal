@@ -1,7 +1,8 @@
 /* ==========================================================================
    js/index.js — Halaman PESERTA
-   Tiga jalur: (1) scan QR undangan sendiri, (2) QR dipindai petugas,
-   (3) form tanpa undangan. Satu daftar hadir.
+   Jalur: (1) scan QR undangan sendiri, (2) form tanpa undangan.
+   Tamu undangan yang TIDAK membawa undangan fisik diarahkan ke absen.html
+   (halaman absensi tamu, tanpa PIN) — lihat js/absen-tamu.js.
    ========================================================================== */
 import { api, lastDiag } from '../api.js';
 import { pad3, fmtTime, toast, normPhone, store, online } from '../util.js';
@@ -12,16 +13,10 @@ const S = {
   info: null,          // hasil get_invite
   open: true,
   eventName: 'Acara Natal',
-  busy: false,
-  // halaman absensi petugas (dibuka dari QR umum / tautan "Petugas?")
-  petugas: false,
-  daftar: [],        // semua peserta dari staff_data
-  hasil: [],
-  terpilih: null,
-  pin: '',
+  busy: false
 };
 
-const views = ['loading', 'offline', 'invite', 'already', 'success', 'form', 'notfound', 'error', 'petugas'];
+const views = ['loading', 'offline', 'invite', 'already', 'success', 'form', 'notfound', 'error'];
 const viewEl = (name) => document.getElementById(`view-${name}`);
 
 function show(name) {
@@ -174,104 +169,12 @@ function readExtras(prefix) {
   };
 }
 
-/* --------------------------------------------- absensi petugas (2 tab) */
-
-/** Tampilkan/matikan tab pada layar absensi petugas. */
-function tabPetugas(key) {
-  for (const k of ['undangan', 'baru']) {
-    document.getElementById(`p-panel-${k}`)?.classList.toggle('hidden', k !== key);
-    const btn = document.getElementById(`p-tab-${k}`);
-    if (btn) btn.setAttribute('aria-selected', k === key ? 'true' : 'false');
-  }
-}
-
-function renderPetugasDaftar() {
-  const sel = document.getElementById('p-pilih');
-  if (!sel) return;
-  sel.innerHTML = '<option value="">— Pilih nama tamu —</option>'
-    + S.hasil.map((p) => `<option value="${p.id}">${pad3(p.lottery_no)} · ${p.name}`
-      + `${p.org ? ' — ' + p.org : ''}${p.attended ? ' ✓ sudah hadir' : ''}</option>`).join('');
-  const info = document.getElementById('p-info');
-  if (info) {
-    const belum = S.daftar.filter((p) => !p.attended).length;
-    info.textContent = S.daftar.length
-      ? `${S.daftar.length} undangan · ${belum} belum hadir. Pilih nama, lalu tekan Hadirkan.`
-      : 'Daftar undangan tidak bisa dimuat (perlu koneksi internet).';
-  }
-}
-
-function filterPetugas(q = '') {
-  const t = String(q || '').trim().toLowerCase();
-  const digit = t.replace(/\D/g, '');
-  S.hasil = (!t ? S.daftar : S.daftar.filter((p) =>
-    String(p.name || '').toLowerCase().includes(t)
-    || String(p.org || '').toLowerCase().includes(t)
-    || (digit && String(p.phone || '').includes(digit))
-    || pad3(p.lottery_no) === t)).slice(0, 60);
-  renderPetugasDaftar();
-}
-
-async function bukaPetugas() {
-  S.petugas = true;
-  setEventName(S.eventName);
-  show('petugas');
-  const pinUrl = (new URLSearchParams(location.search).get('pin') || '').trim();
-  S.pin = pinUrl || store.get('staff_pin', '');
-  if (pinUrl) store.set('staff_pin', pinUrl);
-  if (!S.pin) {
-    // belum ada PIN: halaman absensi khusus petugas akan meminta PIN sekali saja
-    toast('Buka halaman absensi petugas untuk memasukkan PIN.', 'warn', 4000);
-    location.href = './absen.html?mode=absen';
-    return;
-  }
-  try {
-    const res = await api.staffData(S.pin);
-    if (!res?.ok) throw new Error(res?.message || 'PIN ditolak.');
-    S.daftar = (res.participants || []).slice().sort((a, b) => a.lottery_no - b.lottery_no);
-    filterPetugas('');
-  } catch (err) {
-    toast(err?.message || 'Gagal memuat daftar undangan.', 'err', 5000);
-    filterPetugas('');
-  }
-}
-
-async function hadirkanDariDaftar() {
-  if (!S.terpilih) { toast('Pilih nama tamu dulu.', 'warn'); return; }
-  if (!online()) { toast('Butuh koneksi internet untuk mencatat kehadiran.', 'err', 5000); return; }
-  const btn = document.getElementById('p-btn-hadir');
-  btn.disabled = true;
-  btn.textContent = 'Memproses…';
-  try {
-    const res = await api.confirmAttendance(S.terpilih.token, {});
-    if (res?.status === 'closed') { toast('Absensi sedang ditutup.', 'warn'); return; }
-    if (res?.ok === false) { toast(res.message || 'Gagal mencatat kehadiran.', 'err', 5000); return; }
-    renderSuccess({
-      name: res.name || S.terpilih.name,
-      org: res.org || S.terpilih.org,
-      lottery_no: res.lottery_no ?? S.terpilih.lottery_no,
-      preamble: res.status === 'already'
-        ? `Sudah tercatat hadir: ${res.name || S.terpilih.name}`
-        : `Selamat datang, ${res.name || S.terpilih.name}! ✅`,
-      family: res.family_count || 0,
-      meal: Boolean(res.wants_meal),
-      souvenir: Boolean(res.wants_souvenir)
-    });
-  } catch (err) {
-    toast(err?.message || 'Gagal mencatat kehadiran.', 'err', 5000);
-  } finally {
-    btn.disabled = false;
-    btn.textContent = 'Hadirkan';
-  }
-}
-
 /* ------------------------------------------------------------------ alur */
 async function boot() {
-  // QR umum meja registrasi: ?mode=absen (langsung ke absensi petugas)
+  // Tautan lama ?mode=absen|petugas|umum -> halaman absensi TAMU (tanpa PIN).
   const mode = (new URLSearchParams(location.search).get('mode') || '').toLowerCase();
   if (['absen', 'petugas', 'umum'].includes(mode)) {
-    if (!online()) { setNet(false); renderOffline(); return; }
-    setNet(true);
-    await bukaPetugas();
+    location.replace('./absen.html');
     return;
   }
   if (!online()) { setNet(false); renderOffline(); return; }
@@ -455,7 +358,6 @@ function bind() {
     if (S.token) location.reload();
     else { location.href = location.pathname; }
   });
-  document.querySelector('a[href="./absen.html"]')?.addEventListener('click', () => { /* tautan biasa */ });
   document.getElementById('btn-goto-form')?.addEventListener('click', (e) => {
     e.preventDefault();
     history.replaceState(null, '', location.pathname);
@@ -463,35 +365,6 @@ function bind() {
     boot();
   });
 
-  document.getElementById('p-tab-undangan')?.addEventListener('click', () => tabPetugas('undangan'));
-  document.getElementById('p-tab-baru')?.addEventListener('click', () => tabPetugas('baru'));
-  document.getElementById('p-cari')?.addEventListener('input', (e) => filterPetugas(e.target.value));
-  document.getElementById('p-pilih')?.addEventListener('change', (e) => {
-    const p = S.hasil.find((x) => String(x.id) === String(e.target.value));
-    S.terpilih = p || null;
-    const kartu = document.getElementById('p-kartu');
-    const btn = document.getElementById('p-btn-hadir');
-    if (!p) {
-      kartu?.classList.add('hidden');
-      if (btn) btn.disabled = true;
-      return;
-    }
-    if (kartu) {
-      kartu.classList.remove('hidden');
-      kartu.innerHTML = `<div class="notice ${p.attended ? 'notice--warn' : 'notice--info'}">
-        <span class="notice__icon" aria-hidden="true">${p.attended ? '⚠️' : '🎫'}</span>
-        <div><strong>${p.name}</strong> — nomor undian <strong>${pad3(p.lottery_no)}</strong>
-        <div class="small">${p.org ? p.org + ' · ' : ''}${p.attended
-          ? 'sudah tercatat hadir ' + fmtTime(p.attended_at) : 'belum hadir'}</div></div></div>`;
-    }
-    if (btn) btn.disabled = false;
-  });
-  document.getElementById('p-btn-hadir')?.addEventListener('click', hadirkanDariDaftar);
-  document.getElementById('p-btn-tutup')?.addEventListener('click', () => { S.petugas = false; boot(); });
-  document.getElementById('p-btn-form')?.addEventListener('click', () => {
-    S.petugas = false;
-    renderForm(!S.open);
-  });
   window.addEventListener('online', () => { setNet(true); boot(); });
   window.addEventListener('offline', () => setNet(false));
 }

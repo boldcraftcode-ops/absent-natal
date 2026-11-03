@@ -180,21 +180,40 @@ console.log('== Syarat PWA (petugas)');
     ['memilih nama memakai nomor undian lama (tanpa nomor baru)',
       /findPerson\(\{ id: dipilih \}\)/.test(readFileSync(join(root, 'js/petugas.js'), 'utf8'))],
     ['memilih nama mengisi form otomatis', /function pilihUndangan/.test(readFileSync(join(root, 'js/petugas.js'), 'utf8'))],
-    // petugas tanpa pemindai QR: kamera bawaan HP + halaman absensi 2 tab
-    ['halaman absensi petugas ada', existsSync(join(root, 'absen.html'))],
-    ['absen.html punya dua tab',
-      /id="tab-undangan"/.test(readFileSync(join(root, 'absen.html'), 'utf8'))
-      && /id="tab-baru"/.test(readFileSync(join(root, 'absen.html'), 'utf8'))],
-    ['absen.html: dropdown nama sesuai rekap',
-      /id="pilih-nama"/.test(readFileSync(join(root, 'absen.html'), 'utf8'))],
+    // halaman absensi TAMU (tanpa PIN): pilih nama sendiri / tanpa undangan
+    ['halaman absensi tamu ada', existsSync(join(root, 'absen.html'))],
+    ['absen.html: pencarian nama + daftar pilihan',
+      /id="cari-nama"/.test(readFileSync(join(root, 'absen.html'), 'utf8'))
+      && /id="daftar-nama"/.test(readFileSync(join(root, 'absen.html'), 'utf8'))],
+    ['absen.html: jalur tamu tanpa undangan tetap ada',
+      /id="btn-tanpa-undangan"/.test(readFileSync(join(root, 'absen.html'), 'utf8'))
+      && /id="walkin-form"/.test(readFileSync(join(root, 'absen.html'), 'utf8'))],
+    ['absen.html: konfirmasi "Betul ini Anda?"',
+      /id="btn-u-simpan"/.test(readFileSync(join(root, 'absen.html'), 'utf8'))
+      && /Betul ini Anda/.test(readFileSync(join(root, 'absen.html'), 'utf8'))],
+    ['absen.html TANPA PIN dan tanpa staff_data',
+      !/pin-input|staffData|staff_data/.test(readFileSync(join(root, 'absen.html'), 'utf8'))
+      // komentar penjelas di modul menyebut staff_data -> buang komentar dulu
+      && !/staffData|staff_data/.test(
+        readFileSync(join(root, 'js/absen-tamu.js'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, ''))],
+    ['absen-tamu memakai RPC khusus tamu (lookup/attend)',
+      /api\.lookupInvited/.test(readFileSync(join(root, 'js/absen-tamu.js'), 'utf8'))
+      && /api\.attendInvited/.test(readFileSync(join(root, 'js/absen-tamu.js'), 'utf8'))],
     ['absen.html tidak memakai kamera / pustaka QR',
       !/html5-qrcode|getUserMedia/.test(readFileSync(join(root, 'absen.html'), 'utf8'))
       && !/getUserMedia|Html5Qrcode/.test(readFileSync(join(root, 'js/absen-tamu.js'), 'utf8'))],
-    ['halaman peserta punya tab absensi (mode=absen)',
-      /view-petugas/.test(readFileSync(join(root, 'index.html'), 'utf8'))
-      && /mode.*absen|'absen'/.test(readFileSync(join(root, 'js/index.js'), 'utf8'))],
-    ['QR umum mengarah ke halaman absensi',
-      /absen\.html\?mode=absen/.test(readFileSync(join(root, 'js/admin.js'), 'utf8'))],
+    ['tautan lama mode=absen diarahkan ke halaman tamu',
+      /location\.replace\('\.\/absen\.html'\)/.test(readFileSync(join(root, 'js/index.js'), 'utf8'))],
+    ['QR umum mengarah ke halaman absensi tamu (tanpa PIN)',
+      /absen\.html`/.test(readFileSync(join(root, 'js/admin.js'), 'utf8'))
+      && !/absen\.html\?mode=absen/.test(readFileSync(join(root, 'js/admin.js'), 'utf8'))],
+    ['panel admin punya meja registrasi untuk panitia',
+      /id="meja-panitia"/.test(readFileSync(join(root, 'admin.html'), 'utf8'))
+      && /function bukaMeja/.test(readFileSync(join(root, 'js/admin.js'), 'utf8'))],
+    ['skema memuat RPC tamu tanpa PIN',
+      /create or replace function public\.lookup_invited/.test(readFileSync(join(root, 'supabase/schema.sql'), 'utf8'))
+      && /create or replace function public\.attend_invited/.test(readFileSync(join(root, 'supabase/schema.sql'), 'utf8'))
+      && /create or replace function public\.attend_undo/.test(readFileSync(join(root, 'supabase/schema.sql'), 'utf8'))],
     ['absen.html & modulnya di-precache service worker',
       readFileSync(join(root, 'sw.js'), 'utf8').includes("'./absen.html'")
       && readFileSync(join(root, 'sw.js'), 'utf8').includes("'./js/absen-tamu.js'")],
